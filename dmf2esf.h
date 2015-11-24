@@ -33,6 +33,13 @@ Echo ESF documentation
     #include "ini.h"
     #include "inireader.h"
 
+typedef char int8_t;
+typedef unsigned char uint8_t;
+typedef short int16_t;
+typedef unsigned short uint16_t;
+typedef int int32_t;
+typedef unsigned int uint32_t;
+
 /* Main options */
 extern bool OutputInstruments;
 extern bool ASMOut;
@@ -272,6 +279,283 @@ struct Channel
     // 11xy, 12xx, 13xx ... (operator modifying effects not supported by Echo)
 };
 
+static const int ChannelCount[] =
+{
+	0,	//NONE
+	0,	//NONE
+	10,	//SYSTEM_GENESIS
+	4,	//SYSTEM_SMS
+	0,	//SYSTEM_GAMEBOY
+	0,	//SYSTEM_PCENGINE
+	0,	//SYSTEM_NES
+	0,	//SYSTEM_C64
+	0	//SYSTEM_YM2151
+};
+
+class Stream
+{
+public:
+	enum Direction
+	{
+		STREAM_OUT,
+		STREAM_IN
+	};
+
+	Stream(char* ptr)
+	{
+		//TODO: Output support
+		m_direction = STREAM_IN;
+		m_ptr = ptr;
+	}
+
+	Direction GetDirection() const { return m_direction; }
+
+	template <typename T> void Serialise(T& value)
+	{
+		value.Serialise(*this);
+	}
+
+	void Serialise(uint8_t& value)
+	{
+		value = *(uint8_t*)m_ptr;
+		m_ptr += sizeof(uint8_t);
+	}
+
+	void Serialise(uint16_t& value)
+	{
+		value = *(uint16_t*)m_ptr;
+		m_ptr += sizeof(uint16_t);
+	}
+
+	void Serialise(uint32_t& value)
+	{
+		value = *(uint32_t*)m_ptr;
+		m_ptr += sizeof(uint32_t);
+	}
+
+	void Serialise(std::string& value)
+	{
+		uint8_t length;
+		Serialise(length);
+		value.resize(length);
+		memcpy(&value[0], m_ptr, length);
+		m_ptr += length;
+	}
+
+	void Serialise(std::string& value, uint8_t length)
+	{
+		value.resize(length);
+		memcpy(&value[0], m_ptr, length);
+		m_ptr += length;
+	}
+
+private:
+	char* m_ptr;
+	Direction m_direction;
+};
+
+struct DMFFile
+{
+	enum System
+	{
+		SYSTEM_GENESIS = 2,
+		SYSTEM_SMS = 3,
+		SYSTEM_GAMEBOY = 4,
+		SYSTEM_PCENGINE = 5,
+		SYSTEM_NES = 6,
+		SYSTEM_C64 = 7,
+		SYSTEM_YM2151 = 8
+	};
+
+	enum InstrumentMode
+	{
+		INSTRUMENT_PSG,
+		INSTRUMENT_FM
+	};
+
+	enum FMParams
+	{
+		FMPARAM_ar,
+		FMPARAM_dr,
+		FMPARAM_sr,
+		FMPARAM_rr,
+		FMPARAM_tl,
+		FMPARAM_sl,
+		FMPARAM_mul,
+		FMPARAM_dt,
+		FMPARAM_rs,
+		FMPARAM_ssg,
+
+		FMPARAM_max
+	};
+
+	static const int sFormatStringSize = 16;
+	static const int sMaxChannels = 10;
+	static const int sMaxInstruments = 32;
+	static const int sMaxOperators = 4;
+	static const int sMaxEnvelopeSize = 8;
+	static const int sMaxWaveTables = 16;
+	static const int sWaveTableDataSize = 4;
+	static const int sMaxEffects = 4;
+	static const int sMaxSamples = 16;
+
+	struct Instrument
+	{
+		void Serialise(Stream& stream);
+
+		std::string m_name;
+		uint8_t m_mode;
+
+		struct ParamDataFM
+		{
+			void Serialise(Stream& stream);
+
+			uint8_t alg;
+			uint8_t fb;
+			uint8_t lfo;
+			uint8_t lfo2;
+
+			struct Operator
+			{
+				void Serialise(Stream& stream);
+
+				uint8_t am;
+				uint8_t ar;
+				uint8_t dr;
+				uint8_t mul;
+				uint8_t rr;
+				uint8_t sl;
+				uint8_t tl;
+				uint8_t dt2;
+				uint8_t rs;
+				uint8_t dt;
+				uint8_t d2r;
+				uint8_t ssg;
+			};
+
+			Operator m_operators[sMaxOperators];
+		};
+
+		struct ParamDataPSG
+		{
+			void Serialise(Stream& stream);
+
+			struct Envelope
+			{
+				void Serialise(Stream& stream);
+
+				uint8_t envelopeSize;
+				uint8_t envelopeValue[sMaxEnvelopeSize];
+				uint8_t loopPosition;
+			};
+
+			Envelope envelopeVolume;
+			Envelope envelopeArpeggio;
+			Envelope envelopeDutyNoise;
+			Envelope envelopeWaveTable;
+		};
+
+		ParamDataFM m_paramsFM;
+		ParamDataPSG m_paramsPSG;
+	};
+
+	struct WaveTable
+	{
+		void Serialise(Stream& stream);
+
+		uint32_t m_waveTableSize;
+		uint32_t* m_waveTableData;
+	};
+
+	struct Channel
+	{
+		struct PatternPage
+		{
+			struct Note
+			{
+				struct Effect
+				{
+					uint16_t m_effectType;
+					uint16_t m_effectValue;
+				};
+
+				uint16_t m_note;
+				uint16_t m_octave;
+				uint16_t m_volume;
+				Effect m_effects[sMaxEffects];
+				uint16_t m_instrument;
+			};
+
+			Note* m_notes;
+		};
+
+		uint8_t m_numEffects;
+		PatternPage* m_patternPages;
+	};
+	
+	struct Sample
+	{
+		void Serialise(Stream& stream);
+
+		uint32_t m_sampleSize;
+		uint8_t m_sampleRate;
+		uint8_t m_pitch;
+		uint8_t m_amplitude;
+		uint16_t* m_sampleData;
+	};
+	
+	void Serialise(Stream& stream);
+
+	std::string m_formatString;
+	uint8_t m_fileVersion;
+	uint8_t m_systemType;
+	std::string m_songName;
+	std::string m_songAuthor;
+	uint8_t m_highlightA;
+	uint8_t m_highlightB;
+	uint8_t m_timeBase;
+	uint8_t m_tickTime1;
+	uint8_t m_tickTime2;
+	uint8_t m_framesMode;
+	uint8_t m_usingCustomHz;
+	uint8_t m_customHz1;
+	uint8_t m_customHz2;
+	uint8_t m_customHz3;
+	uint8_t m_numNoteRowsPerPattern;
+	uint8_t m_numPatternPages;
+	uint8_t m_arpeggioTickSpeed;
+	uint8_t* m_patternMatrix[sMaxChannels];
+	uint8_t m_numInstruments;
+	Instrument m_instruments[sMaxInstruments];
+	uint8_t m_numWaveTables;
+	WaveTable m_waveTables[sMaxWaveTables];
+	Channel m_channels[sMaxChannels];
+	uint8_t m_numSamples;
+	Sample m_samples[sMaxSamples];
+};
+
+struct ESFFile
+{
+	struct ParamDataFM
+	{
+		static const int sMaxOperators = 4;
+
+		uint8_t alg_fb;
+		uint8_t mul[sMaxOperators];
+		uint8_t tl[sMaxOperators];
+		uint8_t ar_rs[sMaxOperators];
+		uint8_t dr[sMaxOperators];
+		uint8_t sr[sMaxOperators];
+		uint8_t rr_sl[sMaxOperators];
+		uint8_t ssg[sMaxOperators];
+	};
+
+	struct ParamDataPSG
+	{
+
+	};
+};
+
 //=============================================================================
 
 class ESFOutput
@@ -312,8 +596,10 @@ public:
 
     ESFOutput * esf;
 
+	DMFFile m_dmfFile;
+
     char*   comp_data;                  // compressed data
-    char*   data;                       // uncompressed data
+    std::vector<uint8_t>   data;                       // uncompressed data
 
     uint32_t *   PatternData;           // pattern data table
 
@@ -365,10 +651,10 @@ public:
     virtual     ~DMFConverter();    // dtor
     bool        Initialize(const char* Filename);     // load DMF
     bool        Parse();    // parse DMF
-    bool        ParseChannelRow(uint8_t chan, uint32_t ptr); // parse channel
+	bool        ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t CurrRow); // parse channel
     void        ParseChannelEffects(uint8_t chan);
     void        NoteOn(uint8_t chan); // checks channel type and sends appropriate command to ESF
-    void        OutputFMInstrument(uint32_t ptr); // outputs an FM instrument to stdout
+	void        OutputFMInstrument(int instrumentIdx, const char* filename); // outputs an FM instrument to stdout
 
     uint16_t    GetFreq(ChannelType chan);
 

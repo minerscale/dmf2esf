@@ -25,6 +25,8 @@ DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
     ChannelCount = 0;
     RegionType = 0;
 
+	UseTables = false;
+
     //NoiseMode = PSG_WHITE_NOISE_HI;
     for(int i=0; i<10; i++)
     {
@@ -92,7 +94,6 @@ DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
 DMFConverter::~DMFConverter() // dtor
 {
     /* Free any allocated memory */
-    delete [] data;
     delete [] PatternList;
     return;
 }
@@ -100,10 +101,6 @@ DMFConverter::~DMFConverter() // dtor
 /** @brief Initializes module **/
 bool DMFConverter::Initialize(const char* Filename)
 {
-    int i;
-    uint32_t j;
-    uint32_t k;
-
     /* Open file */
     streampos   file_size;
     ifstream file (Filename, ios::in|ios::binary|ios::ate);
@@ -116,16 +113,22 @@ bool DMFConverter::Initialize(const char* Filename)
         file.read (comp_data, file_size);
         file.close();
 
-        uLong comp_size = 16777216;
-        data = new char [comp_size];
+		uLong comp_size_max = 16777216;
+		uLong comp_size = comp_size_max;
+        data.resize(comp_size);
 
         /* Decompress the file with miniz */
         int res;
         #if DEBUG
             fprintf(stdout, "decompression buffer: %lu, original filesize: %d\n", comp_size, (int)file_size);
         #endif
-        res = uncompress((Byte*) data, &comp_size, (Byte*) comp_data, file_size);
-        if(res != Z_OK)
+        res = uncompress((Byte*) &data[0], &comp_size, (Byte*) comp_data, file_size);
+
+		if(comp_size >= comp_size_max)
+		{
+			fprintf(stderr, "Buffer overflow (%u/%u bytes)", (uint32_t)comp_size, (uint32_t)comp_size_max);
+		}
+		else if(res != Z_OK)
         {
             fprintf(stderr, "Failed to uncompress: ");
             if(res == Z_MEM_ERROR)
@@ -140,6 +143,10 @@ bool DMFConverter::Initialize(const char* Filename)
         {
             delete [] comp_data;
 
+			//Create stream and serialise file
+			Stream stream((char*)&data[0]);
+			stream.Serialise(m_dmfFile);
+
             /* Decompression successful, now parse the DMF metadata */
             char DefleMagic[17];
             memcpy(DefleMagic, &data[0], 16);
@@ -151,16 +158,16 @@ bool DMFConverter::Initialize(const char* Filename)
                 return 1;
             }
             #if DEBUG
-                fprintf(stdout, "Module version: %x\n", (int) data[16]);
-                fprintf(stdout, "System: %x\n", (int) data[17]);
+                fprintf(stdout, "Module version: %x\n", (int) m_dmfFile.m_fileVersion);
+				fprintf(stdout, "System: %x\n", (int) m_dmfFile.m_systemType);
             #endif
             /* Get the DMF system. */
-            System = (DMFSystem) data[17];
+			System = (DMFSystem)m_dmfFile.m_systemType;
             if(System == DMF_SYSTEM_GENESIS)
             {
                 /* This is a Genesis module */
                 ChannelCount = 10;
-                for(i=0;i<ChannelCount;i++)
+                for(int i=0;i<ChannelCount;i++)
                 {
                     Channels[i].Id = MDChannels[i].aChannelId;
                     Channels[i].Type = MDChannels[i].aChannelType;
@@ -172,7 +179,7 @@ bool DMFConverter::Initialize(const char* Filename)
                 fprintf(stderr, "Master System module support is untested.\n");
                 /* This is a Master System module */
                 ChannelCount = 4;
-                for(i=0;i<ChannelCount;i++)
+                for(int i=0;i<ChannelCount;i++)
                 {
                     Channels[i].Id = SMSChannels[i].aChannelId;
                     Channels[i].Type = SMSChannels[i].aChannelType;
@@ -184,120 +191,41 @@ bool DMFConverter::Initialize(const char* Filename)
                 fprintf(stderr, "Only Sega Genesis modules are supported.\n"); // Bug: Should obviously be 'Mega Drive modules'
             }
 
-            /* Skip some module metadata. */
-            uint32_t ModPtr = 0x12;
-            uint8_t NameChars;
-            for(i=0;i<2;i++)
-            {
-                NameChars = data[ModPtr];
-                ModPtr = ModPtr+NameChars+1;
-            }
-            ModPtr+=2; // skip highlights
-            #if DEBUG
-                fprintf(stdout, "Pointer position after highlights skip: %#x\n", ModPtr);
-            #endif
-
             /* Extract useful module metadata */
-            TickBase = data[ModPtr];
-            TickTime1 = data[ModPtr+1];
-            TickTime2 = data[ModPtr+2];
-            RegionType = data[ModPtr+3];
-            // custom HZ is ignored (4, 5, 6, 7)
-            TotalRowsPerPattern = data[ModPtr+8];
-            TotalPatterns = data[ModPtr+9];
-            ArpTickSpeed = data[ModPtr+10];
-            ModPtr+=11;
+			TickBase = m_dmfFile.m_timeBase;
+			TickTime1 = m_dmfFile.m_tickTime1;
+			TickTime2 = m_dmfFile.m_tickTime2;
+			RegionType = m_dmfFile.m_framesMode;
+			// custom HZ is ignored (4, 5, 6, 7)
+			TotalRowsPerPattern = m_dmfFile.m_numNoteRowsPerPattern;
+			TotalPatterns = m_dmfFile.m_numPatternPages;
+			ArpTickSpeed = m_dmfFile.m_arpeggioTickSpeed;
 
-            /* Skip the pattern matrix */
-            ModPtr+=(ChannelCount*TotalPatterns);
-
-            /* Skip the instrument data */
-            uint8_t TotalDmfInstruments = data[ModPtr];
-            #if DEBUG
-                fprintf(stdout, "Instrument data located at: %#x (total %d instruments)\n", ModPtr, (int) TotalDmfInstruments);
-            #endif
-            uint8_t DmfInstrumentMode;
-            ModPtr++;
-            for(i=0;i<TotalDmfInstruments;i++)
-            {
-                #if DEBUG
-                    fprintf(stdout, " Instrument %d, position %#x, ", i, ModPtr);
-                #endif
-                NameChars = data[ModPtr];
-                ModPtr = ModPtr+NameChars+1;
-                DmfInstrumentMode = data[ModPtr];
-                #if DEBUG
-                    fprintf(stdout, "type %d\n", DmfInstrumentMode);
-                #endif
-                ModPtr++;
-                if(DmfInstrumentMode==1)
-                {
-                    /* FM instrument */
-                    if(OutputInstruments)
-                    {
-                        if(UseTables)
-                            fprintf(stdout, "instr_%02x ; FM Instrument %d\n", InstrumentTable[i],i);
-                        else
-                            fprintf(stdout, "instr_%02x ; FM Instrument %d\n", i,i);
-                        this->OutputFMInstrument(ModPtr);
-                    }
-                    ModPtr+=8+(19*4); // YM2612 has 4 operators
-                }
-                else if(DmfInstrumentMode==0)
-                {
-                    /* Standard instrument */
-                    for(j=0;j<4;j++)
-                    {
-                        #if DEBUG
-                            fprintf(stdout, "  macro %d, position %#x\n", j, ModPtr);
-                        #endif
-                        // Get size of envelope.
-                        k=data[ModPtr];
-                        // Undocumented! If the envelope size is 0, there's no data
-                        // for the loop position.
-                        if(k>0)
-                            ModPtr+=(k*4)+2;
-                        else
-                            ModPtr++;
-                        if(j==1)
-                            ModPtr++; // Skip the arpeggio macro
-                    }
-                }
-            }
-
-            /* MD or SMS does not support wavetables */
-            ModPtr++;
+			for(int i = 0; i < m_dmfFile.m_numInstruments; i++)
+			{
+				char filename[FILENAME_MAX] = { 0 };
+				sprintf_s(filename, FILENAME_MAX, "instr_%02x_%s.eif", i, m_dmfFile.m_instruments[i].m_name.c_str());
+				OutputFMInstrument(i, filename);
+			}
 
             /* Finally build the pattern offset table */
             PatternData = new uint32_t[ChannelCount];
 
-            #if DEBUG
-                fprintf(stdout, "Pattern data located at: %#x\n", ModPtr);
-            #endif
             /* Get some pattern data */
-            for(i=0;i<ChannelCount;i++)
+            for(int i=0;i<ChannelCount;i++)
             {
-                Channels[i].EffectCount = data[ModPtr];
-                #if DEBUG
-                    fprintf(stdout, " Channel %d, effects: %d, position %#x\n",i,(int)Channels[i].EffectCount,ModPtr);
-                #endif
-                ModPtr++;
-                PatternData[i] = ModPtr;
-                ModPtr+=TotalPatterns*rowsize(i,TotalRowsPerPattern);
+				Channels[i].EffectCount = m_dmfFile.m_channels[i].m_numEffects;
 
                 /* Check for backwards jumps */
                 for(CurrPattern=0;CurrPattern<TotalPatterns;CurrPattern++)
                 {
                     for(CurrRow=0;CurrRow<TotalRowsPerPattern;CurrRow++)
                     {
-                        uint32_t ChannelData = 0;
-                        ChannelData = PatternData[i]+CurrPattern*rowsize(i,TotalRowsPerPattern);
-                        ChannelData+= rowsize(i,CurrRow);
                         uint8_t EffectCounter;
                         for(EffectCounter=0;EffectCounter<Channels[i].EffectCount;EffectCounter++)
                         {
-                            uint8_t EffectType=data[ChannelData+6+(EffectCounter*4)];
-                            uint8_t EffectParam=data[ChannelData+8+(EffectCounter*4)];
+							uint8_t EffectType = m_dmfFile.m_channels[i].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
+							uint8_t EffectParam = m_dmfFile.m_channels[i].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectValue;
                             if(EffectType == 0x0b) // jump
                             {
                                 if(EffectParam < CurrPattern && LoopFound == false)
@@ -312,9 +240,6 @@ bool DMFConverter::Initialize(const char* Filename)
                     }
                 }
             }
-            #if DEBUG
-                fprintf(stdout, "End of pattern data at %#x\n",ModPtr);
-            #endif
         }
     }
     else
@@ -329,7 +254,6 @@ bool DMFConverter::Initialize(const char* Filename)
 bool DMFConverter::Parse()
 {
     uint8_t CurrChannel;
-    uint32_t ChannelData;
     fprintf(stdout, "Now parsing pattern data...\n");
     NextRow = 0;
     for(CurrPattern=0;CurrPattern<TotalPatterns;CurrPattern++)
@@ -349,11 +273,7 @@ bool DMFConverter::Parse()
             /* Parse pattern data */
             for(CurrChannel=0;CurrChannel<ChannelCount;CurrChannel++)
             {
-                //ChannelData = PatternList[chpat(CurrChannel,CurrPattern)]+rowsize(CurrChannel,CurrRow);
-                ChannelData = PatternData[CurrChannel]+CurrPattern*rowsize(CurrChannel,TotalRowsPerPattern);
-                ChannelData+= rowsize(CurrChannel,CurrRow);
-
-                if(this->ParseChannelRow(CurrChannel,ChannelData))
+				if(this->ParseChannelRow(CurrChannel, CurrPattern, CurrRow))
                 {
                     fprintf(stderr, "Could not parse module data.\n");
                     return 1;
@@ -388,9 +308,7 @@ bool DMFConverter::Parse()
                 #endif
                 for(CurrChannel=0;CurrChannel<ChannelCount;CurrChannel++)
                 {
-                    ChannelData = PatternData[CurrChannel]+LoopPattern*rowsize(CurrChannel,TotalRowsPerPattern);
-                    ChannelData+= rowsize(CurrChannel,LoopRow);
-                    if(this->ParseChannelRow(CurrChannel,ChannelData))
+                    if(this->ParseChannelRow(CurrChannel, CurrPattern, CurrRow))
                         return 1;
                 }
                 #if MODDATA
@@ -416,7 +334,7 @@ bool DMFConverter::Parse()
     return 0;
 }
 /** @brief Parses pattern data for a single channel **/
-bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t ptr)
+bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t CurrRow)
 {
 
     uint8_t EffectCounter;
@@ -428,10 +346,10 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t ptr)
     Channels[chan].NoteDelay = EFFECT_OFF;
 
     /* Get row data */
-    Channels[chan].Note = data[ptr];
-    Channels[chan].Octave = data[ptr+2];
-    Channels[chan].NewVolume = data[ptr+4];
-    Channels[chan].NewInstrument = data[ptr+(Channels[chan].EffectCount*4)+6];
+	Channels[chan].Note = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_note;
+	Channels[chan].Octave = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_octave;
+	Channels[chan].NewVolume = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_volume;
+	Channels[chan].NewInstrument = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_instrument;
 
     /* Instrument updated? */
     if(Channels[chan].NewInstrument != Channels[chan].Instrument && Channels[chan].NewInstrument != 0xff)
@@ -461,8 +379,8 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t ptr)
     /* Parse some effects before any note ons */
     for(EffectCounter=0;EffectCounter<Channels[chan].EffectCount;EffectCounter++)
     {
-        EffectType=data[ptr+6+(EffectCounter*4)];
-        EffectParam=data[ptr+8+(EffectCounter*4)];
+		EffectType = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
+		EffectParam = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectValue;
         if(EffectType == 0x17) // DAC enable
         {
             DACEnabled = 0;
@@ -519,8 +437,8 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t ptr)
         /* Parse some effects that will affect the note on */
         for(EffectCounter=0;EffectCounter<Channels[chan].EffectCount;EffectCounter++)
         {
-            EffectType=data[ptr+6+(EffectCounter*4)];
-            EffectParam=data[ptr+8+(EffectCounter*4)];
+			EffectType = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
+			EffectParam = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectValue;
             if(EffectType == 0x03) // Tone portamento.
                 Channels[chan].PortaNote = EFFECT_SCHEDULE;
             else if(EffectType == 0xed) // Note delay.
@@ -549,8 +467,8 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t ptr)
     /* Parse effects */
     for(EffectCounter=0;EffectCounter<Channels[chan].EffectCount;EffectCounter++)
     {
-        EffectType=data[ptr+6+(EffectCounter*4)];
-        EffectParam=data[ptr+8+(EffectCounter*4)];
+		EffectType = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
+		EffectParam = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectValue;
         //fprintf(stdout, "%02x %02x, ",(int)EffectType,(int)EffectParam);
         switch(EffectType)
         {
@@ -758,32 +676,261 @@ void DMFConverter::NoteOn(uint8_t chan)
 }
 
 /** Extracts FM instrument data and stores as params for the EIF macro */
-void DMFConverter::OutputFMInstrument(uint32_t ptr)
+void DMFConverter::OutputFMInstrument(int instrumentIdx, const char* filename)
 {
     static int optable[] = {1,2,3,4};
     static uint8_t dttable[] = {7,6,5,0,1,2,3};
 
-    int i, op;
-    fprintf(stdout,"alg  = %d\n",(int) data[ptr]);
-    fprintf(stdout,"fb   = %d\n",(int) data[ptr+2]);
-    ptr+=9;
+	DMFFile::Instrument::ParamDataFM& paramDataIn = m_dmfFile.m_instruments[instrumentIdx].m_paramsFM;
+	ESFFile::ParamDataFM paramDataOut;
+	
+	paramDataOut.alg_fb = (paramDataIn.alg | (paramDataIn.fb << 3));
+	
+	for(int i = 0; i < DMFFile::sMaxOperators; i++)
+	{
+		DMFFile::Instrument::ParamDataFM::Operator& opData = paramDataIn.m_operators[i];
 
-    for(i=0;i<4;i++)
-    {
-        op = optable[i];
-        fprintf(stdout,"ar%d  = %d\n",op,(int) data[ptr+(19*i-1)+1]);  //AR
-        fprintf(stdout,"dr%d  = %d\n",op,(int) data[ptr+(19*i-1)+3]);  //DR
-        fprintf(stdout,"sr%d  = %d\n",op,(int) data[ptr+(19*i-1)+17]); //D2R
-        fprintf(stdout,"rr%d  = %d\n",op,(int) data[ptr+(19*i-1)+9]);  //RR
-        fprintf(stdout,"tl%d  = %d\n",op,(int) data[ptr+(19*i-1)+12]); //TL
-        fprintf(stdout,"sl%d  = %d\n",op,(int) data[ptr+(19*i-1)+10]); //SL
-        fprintf(stdout,"mul%d = %d\n",op,(int) data[ptr+(19*i-1)+8]); //MULT
-        fprintf(stdout,"dt%d  = %d\n",op, dttable[(int)data[ptr+(19*i-1)+16]]); //DT
-        fprintf(stdout,"rs%d  = %d\n",op,(int) data[ptr+(19*i-1)+15]); //RS
-        fprintf(stdout,"ssg%d = $%02x\n",op,(int) data[ptr+(19*i-1)+18]);//SSG-EG
-    }
+		int op = optable[i];
+		fprintf(stdout, "ar%d  = %d\n", op, (int)opData.ar);  //AR
+		fprintf(stdout, "dr%d  = %d\n", op, (int)opData.dr);  //DR
+		fprintf(stdout, "d2r%d  = %d\n", op, (int)opData.d2r); //D2R
+		fprintf(stdout, "rr%d  = %d\n", op, (int)opData.rr);  //RR
+		fprintf(stdout, "tl%d  = %d\n", op, (int)opData.tl); //TL
+		fprintf(stdout, "sl%d  = %d\n", op, (int)opData.sl); //SL
+		fprintf(stdout, "mul%d = %d\n", op, (int)opData.mul); //MULT
+		fprintf(stdout, "dt%d  = %d\n", op, dttable[opData.dt]); //DT
+		fprintf(stdout, "rs%d  = %d\n", op, (int)opData.rs); //RS
+		fprintf(stdout, "ssg%d = $%02x\n", op, (int)opData.ssg);//SSG-EG
+
+		paramDataOut.mul[i] = (opData.mul | (dttable[opData.dt] << 4));
+		paramDataOut.tl[i] = opData.tl;
+		paramDataOut.ar_rs[i] = (opData.ar | (opData.rs << 6));
+		paramDataOut.dr[i] = opData.dr;
+		paramDataOut.sr[i] = opData.d2r;
+		paramDataOut.rr_sl[i] = (opData.rr | (opData.sl << 4));
+		paramDataOut.ssg[i] = opData.ssg;
+	}
+	
+	if(FILE* file = fopen(filename, "w"))
+	{
+		fwrite((char*)&paramDataOut, sizeof(ESFFile::ParamDataFM), 1, file);
+		fclose(file);
+	}
 
     fprintf(stdout,"\teif\n; end of instrument\n");
 
     return;
+}
+
+void DMFFile::Serialise(Stream& stream)
+{
+	//Format string, version, system, song and author name
+	stream.Serialise(m_formatString, sFormatStringSize);
+	stream.Serialise(m_fileVersion);
+	stream.Serialise(m_systemType);
+	stream.Serialise(m_songName);
+	stream.Serialise(m_songAuthor);
+
+	//Column highlighting
+	stream.Serialise(m_highlightA);
+	stream.Serialise(m_highlightB);
+
+	//Timing
+	stream.Serialise(m_timeBase);
+	stream.Serialise(m_tickTime1);
+	stream.Serialise(m_tickTime2);
+	stream.Serialise(m_framesMode);
+	stream.Serialise(m_usingCustomHz);
+	stream.Serialise(m_customHz1);
+	stream.Serialise(m_customHz2);
+	stream.Serialise(m_customHz3);
+	stream.Serialise(m_numNoteRowsPerPattern);
+	stream.Serialise(m_numPatternPages);
+	stream.Serialise(m_arpeggioTickSpeed);
+
+	//Channels
+	const int channelCount = ChannelCount[m_systemType];
+	for(int i = 0; i < channelCount; i++)
+	{
+		m_patternMatrix[i] = new uint8_t[m_numPatternPages];
+		for(int j = 0; j < m_numPatternPages; j++)
+		{
+			stream.Serialise(m_patternMatrix[i][j]);
+		}
+	}
+
+	//Instruments
+	stream.Serialise(m_numInstruments);
+	for(int i = 0; i < m_numInstruments; i++)
+	{
+		stream.Serialise(m_instruments[i]);
+	}
+
+	//Wave tables
+	stream.Serialise(m_numWaveTables);
+	for(int i = 0; i < m_numWaveTables; i++)
+	{
+		stream.Serialise(m_waveTables[i]);
+	}
+
+	//Note channels
+	for(int channelIdx = 0; channelIdx < channelCount; channelIdx++)
+	{
+		Channel& channel = m_channels[channelIdx];
+
+		stream.Serialise(channel.m_numEffects);
+		
+		if(stream.GetDirection() == Stream::STREAM_IN)
+		{
+			channel.m_patternPages = new Channel::PatternPage[m_numPatternPages];
+		}
+
+		//Note pattern pages
+		for(int patternPageIdx = 0; patternPageIdx < m_numPatternPages; patternPageIdx++)
+		{
+			Channel::PatternPage& patternPage = channel.m_patternPages[patternPageIdx];
+
+			if(stream.GetDirection() == Stream::STREAM_IN)
+			{
+				patternPage.m_notes = new Channel::PatternPage::Note[m_numNoteRowsPerPattern];
+			}
+
+			//Notes
+			for(int noteIdx = 0; noteIdx < m_numNoteRowsPerPattern; noteIdx++)
+			{
+				Channel::PatternPage::Note& note = patternPage.m_notes[noteIdx];
+
+				stream.Serialise(note.m_note);
+				stream.Serialise(note.m_octave);
+				stream.Serialise(note.m_volume);
+
+				//Note effects
+				for(int effectIdx = 0; effectIdx < channel.m_numEffects; effectIdx++)
+				{
+					stream.Serialise(note.m_effects[effectIdx].m_effectType);
+					stream.Serialise(note.m_effects[effectIdx].m_effectValue);
+				}
+
+				stream.Serialise(note.m_instrument);
+			}
+		}
+	}
+
+	//Samples
+	stream.Serialise(m_numSamples);
+	for(int i = 0; i < m_numSamples; i++)
+	{
+		stream.Serialise(m_samples[i]);
+	}
+}
+
+void DMFFile::Instrument::Serialise(Stream& stream)
+{
+	//Instrument name
+	stream.Serialise(m_name);
+
+	//Instrument mode (FM/PSG)
+	stream.Serialise(m_mode);
+
+	if(m_mode == INSTRUMENT_PSG)
+	{
+		stream.Serialise(m_paramsPSG);
+	}
+	else if(m_mode == INSTRUMENT_FM)
+	{
+		stream.Serialise(m_paramsFM);
+	}
+}
+
+void DMFFile::Instrument::ParamDataFM::Serialise(Stream& stream)
+{
+	//Common params
+	stream.Serialise(alg);
+	stream.Serialise(fb);
+	stream.Serialise(lfo);
+	stream.Serialise(lfo2);
+
+	//Operators
+	for(int i = 0; i < sMaxOperators; i++)
+	{
+		stream.Serialise(m_operators[i]);
+	}
+}
+
+void DMFFile::Instrument::ParamDataFM::Operator::Serialise(Stream& stream)
+{
+	stream.Serialise(am);
+	stream.Serialise(ar);
+	stream.Serialise(dr);
+	stream.Serialise(mul);
+	stream.Serialise(rr);
+	stream.Serialise(sl);
+	stream.Serialise(tl);
+	stream.Serialise(dt2);
+	stream.Serialise(rs);
+	stream.Serialise(dt);
+	stream.Serialise(d2r);
+	stream.Serialise(ssg);
+}
+
+void DMFFile::Instrument::ParamDataPSG::Serialise(Stream& stream)
+{
+	stream.Serialise(envelopeVolume);
+	stream.Serialise(envelopeArpeggio);
+	stream.Serialise(envelopeDutyNoise);
+	stream.Serialise(envelopeWaveTable);
+}
+
+void DMFFile::Instrument::ParamDataPSG::Envelope::Serialise(Stream& stream)
+{
+	//Envelope size
+	stream.Serialise(envelopeSize);
+
+	//Envelope values
+	for(int i = 0; i < envelopeSize; i++)
+	{
+		stream.Serialise(envelopeValue[i]);
+	}
+	
+	//Loop position
+	if(envelopeSize > 0)
+	{
+		stream.Serialise(loopPosition);
+	}
+}
+
+void DMFFile::WaveTable::Serialise(Stream& stream)
+{
+	stream.Serialise(m_waveTableSize);
+
+	if(stream.GetDirection() == Stream::STREAM_IN)
+	{
+		m_waveTableData = new uint32_t[m_waveTableSize];
+	}
+
+	for(int i = 0; i < m_waveTableSize; i++)
+	{
+		for(int j = 0; j < sWaveTableDataSize; j++)
+		{
+			stream.Serialise(m_waveTableData[(i * sWaveTableDataSize) + j]);
+		}
+	}
+}
+
+void DMFFile::Sample::Serialise(Stream& stream)
+{
+	stream.Serialise(m_sampleSize);
+	stream.Serialise(m_sampleRate);
+	stream.Serialise(m_pitch);
+	stream.Serialise(m_amplitude);
+
+	if(stream.GetDirection() == Stream::STREAM_IN)
+	{
+		m_sampleData = new uint16_t[m_sampleSize];
+	}
+
+	for(int i = 0; i < m_sampleSize; i++)
+	{
+		stream.Serialise(m_sampleData[i]);
+	}
 }
