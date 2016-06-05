@@ -45,6 +45,11 @@ extern bool OutputInstruments;
 extern bool ASMOut;
 extern bool ExCommands;
 
+enum DMFVersion
+{
+	DMFVersion_12_0 = 0x18
+};
+
 enum ChannelType
 {
     CHANNEL_TYPE_INVALID,
@@ -521,7 +526,7 @@ struct DMFFile
 	uint8_t m_customHz1;
 	uint8_t m_customHz2;
 	uint8_t m_customHz3;
-	uint8_t m_numNoteRowsPerPattern;
+	uint32_t m_numNoteRowsPerPattern;
 	uint8_t m_numPatternPages;
 	uint8_t m_arpeggioTickSpeed;
 	uint8_t* m_patternMatrix[sMaxChannels];

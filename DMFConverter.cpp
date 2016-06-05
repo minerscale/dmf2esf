@@ -744,9 +744,24 @@ void DMFFile::Serialise(Stream& stream)
 	stream.Serialise(m_customHz1);
 	stream.Serialise(m_customHz2);
 	stream.Serialise(m_customHz3);
-	stream.Serialise(m_numNoteRowsPerPattern);
+
+	if(m_fileVersion >= DMFVersion_12_0)
+	{
+		stream.Serialise(m_numNoteRowsPerPattern);
+	}
+	else
+	{
+		uint8_t numNoteRowsByte = (uint8_t)m_numNoteRowsPerPattern;
+		stream.Serialise(numNoteRowsByte);
+		m_numNoteRowsPerPattern = numNoteRowsByte;
+	}
+
 	stream.Serialise(m_numPatternPages);
-	stream.Serialise(m_arpeggioTickSpeed);
+
+	if(m_fileVersion < DMFVersion_12_0)
+	{
+		stream.Serialise(m_arpeggioTickSpeed);
+	}
 
 	//Channels
 	const int channelCount = ChannelCount[m_systemType];
