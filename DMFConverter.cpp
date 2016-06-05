@@ -753,66 +753,74 @@ void DMFConverter::OutputSample(int sampleIdx, const char* filename)
 {
 	const DMFFile::Sample& sample = m_dmfFile.m_samples[sampleIdx];
 
+	float* sourceDataFloat = new float[sample.m_sampleSize];
+	float* destDataFloat = new float[sample.m_sampleSize * 2];
+
 	if(sample.m_bitsPerSample == 8)
 	{
-		float* sourceDataFloat = new float[sample.m_sampleSize];
-		float* destDataFloat = new float[sample.m_sampleSize * 2];
-
 		//Source data to float
 		for(int i = 0; i < sample.m_sampleSize; i++)
 		{
 			sourceDataFloat[i] = (float)((uint8_t)sample.m_sampleData[i] & 0xFF) / 255.0f;
 		}
+	}
+	else if(sample.m_bitsPerSample == 16)
+	{
+		//Source data to float
+		for(int i = 0; i < sample.m_sampleSize; i++)
+		{
+			sourceDataFloat[i] = (float)sample.m_sampleData[i] / 32767.0f;
+		}
+	}
 
-		//Sample rate conversion using Secret Rabbit Code (http://www.mega-nerd.com/SRC)
-		SRC_DATA srcConfig;
-		srcConfig.data_in = sourceDataFloat;
-		srcConfig.data_out = destDataFloat;
-		srcConfig.input_frames = sample.m_sampleSize;
-		srcConfig.output_frames = sample.m_sampleSize * 2;
-		srcConfig.src_ratio = (double)DMFFile::sTargetSampleRate / (double)DMFFile::sSampleRates[sample.m_sampleRate];
+	//Sample rate conversion using Secret Rabbit Code (http://www.mega-nerd.com/SRC)
+	SRC_DATA srcConfig;
+	srcConfig.data_in = sourceDataFloat;
+	srcConfig.data_out = destDataFloat;
+	srcConfig.input_frames = sample.m_sampleSize;
+	srcConfig.output_frames = sample.m_sampleSize * 2;
+	srcConfig.src_ratio = (double)DMFFile::sTargetSampleRate / (double)DMFFile::sSampleRates[sample.m_sampleRate];
 		
-		int srcResult = src_simple(&srcConfig, SRC_SINC_BEST_QUALITY, 1);
-		if(srcResult == 0)
+	int srcResult = src_simple(&srcConfig, SRC_SINC_BEST_QUALITY, 1);
+	if(srcResult == 0)
+	{
+		//Convert back to u8
+		uint32_t outputSize = srcConfig.output_frames_gen + 1;
+
+		uint8_t* destDataUint8 = new uint8_t[outputSize];
+
+		for(int i = 0; i < outputSize - 1; i++)
 		{
-			//Convert back to u8
-			uint32_t outputSize = srcConfig.output_frames_gen + 1;
+			destDataUint8[i] = (uint8_t)((destDataFloat[i] + 1.0f) * 128.0f);
 
-			uint8_t* destDataUint8 = new uint8_t[outputSize];
-
-			for(int i = 0; i < outputSize - 1; i++)
+			//Nudge 0xFF bytes to 0xFE
+			if(destDataUint8[i] == 0xFF)
 			{
-				destDataUint8[i] = (uint8_t)(destDataFloat[i] * 255.0f);
-
-				//Nudge 0xFF bytes to 0xFE
-				if(destDataUint8[i] == 0xFF)
-				{
-					destDataUint8[i] = 0xFE;
-				}
+				destDataUint8[i] = 0xFE;
 			}
-
-			//End of data
-			destDataUint8[outputSize - 1] = 0xFF;
-
-			if(FILE* file = fopen(filename, "w"))
-			{
-				fwrite((char*)destDataUint8, outputSize, 1, file);
-				fclose(file);
-			}
-
-			fprintf(stdout, "\tewf\n; end of sample\n");
 		}
-		else
+
+		//End of data
+		destDataUint8[outputSize - 1] = 0xFF;
+
+		if(FILE* file = fopen(filename, "w"))
 		{
-			//SRC error
-			fprintf(stdout, "\tewf\n; sample rate conversion error\n");
+			fwrite((char*)destDataUint8, outputSize, 1, file);
+			fclose(file);
 		}
+
+		fprintf(stdout, "\tewf\n; end of sample\n");
+
+		delete destDataUint8;
 	}
 	else
 	{
-		fprintf(stdout, "\tewf\n; sample not 8-bit, unsupported\n");
+		//SRC error
+		fprintf(stdout, "\tewf\n; sample rate conversion error\n");
 	}
-	
+
+	delete sourceDataFloat;
+	delete destDataFloat;
 }
 
 void DMFFile::Serialise(Stream& stream)
