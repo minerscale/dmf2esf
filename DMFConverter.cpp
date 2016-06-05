@@ -1,6 +1,17 @@
 #include "dmf2esf.h"
+#include "libsamplerate\src\samplerate.h"
 
 using namespace std;
+
+const int DMFFile::sSampleRates[6] =
+{
+	0,		// 0
+	8000,	// 1
+	11025,	// 2
+	16000,	// 3
+	22050,	// 4
+	32000	// 5
+};
 
 DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
 {
@@ -200,12 +211,20 @@ bool DMFConverter::Initialize(const char* Filename)
 			TotalRowsPerPattern = m_dmfFile.m_numNoteRowsPerPattern;
 			TotalPatterns = m_dmfFile.m_numPatternPages;
 			ArpTickSpeed = m_dmfFile.m_arpeggioTickSpeed;
+			TotalInstruments = m_dmfFile.m_numInstruments;
 
 			for(int i = 0; i < m_dmfFile.m_numInstruments; i++)
 			{
 				char filename[FILENAME_MAX] = { 0 };
 				sprintf_s(filename, FILENAME_MAX, "instr_%02x_%s.eif", i, m_dmfFile.m_instruments[i].m_name.c_str());
 				OutputFMInstrument(i, filename);
+			}
+
+			for(int i = 0; i < m_dmfFile.m_numSamples; i++)
+			{
+				char filename[FILENAME_MAX] = { 0 };
+				sprintf_s(filename, FILENAME_MAX, "sample_%02x_%s.ewf", i, m_dmfFile.m_samples[i].m_name.c_str());
+				OutputSample(i, filename);
 			}
 
             /* Finally build the pattern offset table */
@@ -662,10 +681,18 @@ void DMFConverter::NoteOn(uint8_t chan)
 
         if((Channels[chan].Type == CHANNEL_TYPE_FM6 && DACEnabled == true))
         {
-            if(UseTables)
-                esf->NoteOn(ESF_DAC,SampleTable[Channels[chan].Note]);
+			int sampleIdx = 0;
+
+			if(UseTables)
+				sampleIdx = SampleTable[Channels[chan].Note];
             else
-                esf->NoteOn(ESF_DAC,Channels[chan].Note);
+				sampleIdx = Channels[chan].Note;
+
+			//Offset sample index by max instruments (PCM data should be listed after instruments in Echo pointer list)
+			int pcmInstrIdx = TotalInstruments + sampleIdx;
+
+			//PCM note on
+			esf->NoteOn(ESF_DAC, pcmInstrIdx);
         }
         else
         {
@@ -720,6 +747,72 @@ void DMFConverter::OutputFMInstrument(int instrumentIdx, const char* filename)
     fprintf(stdout,"\teif\n; end of instrument\n");
 
     return;
+}
+
+void DMFConverter::OutputSample(int sampleIdx, const char* filename)
+{
+	const DMFFile::Sample& sample = m_dmfFile.m_samples[sampleIdx];
+
+	if(sample.m_bitsPerSample == 8)
+	{
+		float* sourceDataFloat = new float[sample.m_sampleSize];
+		float* destDataFloat = new float[sample.m_sampleSize * 2];
+
+		//Source data to float
+		for(int i = 0; i < sample.m_sampleSize; i++)
+		{
+			sourceDataFloat[i] = (float)((uint8_t)sample.m_sampleData[i] & 0xFF) / 255.0f;
+		}
+
+		//Sample rate conversion using Secret Rabbit Code (http://www.mega-nerd.com/SRC)
+		SRC_DATA srcConfig;
+		srcConfig.data_in = sourceDataFloat;
+		srcConfig.data_out = destDataFloat;
+		srcConfig.input_frames = sample.m_sampleSize;
+		srcConfig.output_frames = sample.m_sampleSize * 2;
+		srcConfig.src_ratio = (double)DMFFile::sTargetSampleRate / (double)DMFFile::sSampleRates[sample.m_sampleRate];
+		
+		int srcResult = src_simple(&srcConfig, SRC_SINC_BEST_QUALITY, 1);
+		if(srcResult == 0)
+		{
+			//Convert back to u8
+			uint32_t outputSize = srcConfig.output_frames_gen + 1;
+
+			uint8_t* destDataUint8 = new uint8_t[outputSize];
+
+			for(int i = 0; i < outputSize - 1; i++)
+			{
+				destDataUint8[i] = (uint8_t)(destDataFloat[i] * 255.0f);
+
+				//Nudge 0xFF bytes to 0xFE
+				if(destDataUint8[i] == 0xFF)
+				{
+					destDataUint8[i] = 0xFE;
+				}
+			}
+
+			//End of data
+			destDataUint8[outputSize - 1] = 0xFF;
+
+			if(FILE* file = fopen(filename, "w"))
+			{
+				fwrite((char*)destDataUint8, outputSize, 1, file);
+				fclose(file);
+			}
+
+			fprintf(stdout, "\tewf\n; end of sample\n");
+		}
+		else
+		{
+			//SRC error
+			fprintf(stdout, "\tewf\n; sample rate conversion error\n");
+		}
+	}
+	else
+	{
+		fprintf(stdout, "\tewf\n; sample not 8-bit, unsupported\n");
+	}
+	
 }
 
 void DMFFile::Serialise(Stream& stream)
@@ -936,10 +1029,11 @@ void DMFFile::WaveTable::Serialise(Stream& stream)
 void DMFFile::Sample::Serialise(Stream& stream)
 {
 	stream.Serialise(m_sampleSize);
-	stream.Serialise(m_sampleName);
+	stream.Serialise(m_name);
 	stream.Serialise(m_sampleRate);
 	stream.Serialise(m_pitch);
 	stream.Serialise(m_amplitude);
+	stream.Serialise(m_bitsPerSample);
 
 	if(stream.GetDirection() == Stream::STREAM_IN)
 	{

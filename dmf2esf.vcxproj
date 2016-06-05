@@ -52,6 +52,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_CONSOLE;_LIB;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>libsamplerate\Win32;</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -82,6 +83,14 @@
     <ClInclude Include="dmf2esf.h" />
     <ClInclude Include="ini.h" />
     <ClInclude Include="inireader.h" />
+    <ClInclude Include="libsamplerate\src\common.h" />
+    <ClInclude Include="libsamplerate\src\fastest_coeffs.h" />
+    <ClInclude Include="libsamplerate\src\float_cast.h" />
+    <ClInclude Include="libsamplerate\src\high_qual_coeffs.h" />
+    <ClInclude Include="libsamplerate\src\mid_qual_coeffs.h" />
+    <ClInclude Include="libsamplerate\src\samplerate.h" />
+    <ClInclude Include="libsamplerate\Win32\config.h" />
+    <ClInclude Include="libsamplerate\Win32\unistd.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="DMFConverter.cpp" />
@@ -89,6 +98,10 @@
     <ClCompile Include="functions.cpp" />
     <ClCompile Include="ini.c" />
     <ClCompile Include="inireader.cpp" />
+    <ClCompile Include="libsamplerate\src\samplerate.c" />
+    <ClCompile Include="libsamplerate\src\src_linear.c" />
+    <ClCompile Include="libsamplerate\src\src_sinc.c" />
+    <ClCompile Include="libsamplerate\src\src_zoh.c" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="miniz.c" />
   </ItemGroup>

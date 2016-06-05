@@ -22,6 +22,7 @@ int main(int argc, char *argv[])
     fprintf(stdout, "\nDMF2ESF ver %d.%d (built %s %s)\n", MAJORVER, MINORVER, __DATE__, __TIME__);
     fprintf(stdout, "Copyright 2013-2014 ctr.\n");
     fprintf(stdout, "Licensed under GPLv2, see LICENSE.txt.\n\n");
+	fprintf(stdout, "Includes source from Secret Rabbit Code, Licensed under GPLv1, see libsamplerate\COPYING.\n\n");
 //    fprintf(stdout, "Not licensed under any license;\nyou may not do anything at all with this program.\n\n");
 
     if(argc > 1)

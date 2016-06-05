@@ -1,6 +1,8 @@
 // Deflemask -> Echo Converter
 // Started 2013-12-05, in Linköping, Sverige by Ian Karlsson.
 
+// Sample rate conversion uses Secret Rabbit Code, see http://www.mega-nerd.com/SRC
+
 /*
                         Useful Links:
 
@@ -409,6 +411,8 @@ struct DMFFile
 	static const int sWaveTableDataSize = 4;
 	static const int sMaxEffects = 4;
 	static const int sMaxSamples = 16;
+	static const int sTargetSampleRate = 10650;
+	static const int sSampleRates[6];
 
 	struct Instrument
 	{
@@ -510,10 +514,11 @@ struct DMFFile
 		void Serialise(Stream& stream);
 
 		uint32_t m_sampleSize;
-		std::string m_sampleName;
+		std::string m_name;
 		uint8_t m_sampleRate;
 		uint8_t m_pitch;
 		uint8_t m_amplitude;
+		uint8_t m_bitsPerSample;
 		uint16_t* m_sampleData;
 	};
 	
@@ -618,6 +623,7 @@ public:
 
     bool        UseTables;
     uint8_t     InstrumentTable[256];   // instrument conversion table
+	uint8_t     TotalInstruments;
     uint8_t     SampleTable[12];
 
     DMFSystem   System;                 // current system
@@ -668,6 +674,7 @@ public:
     void        ParseChannelEffects(uint8_t chan);
     void        NoteOn(uint8_t chan); // checks channel type and sends appropriate command to ESF
 	void        OutputFMInstrument(int instrumentIdx, const char* filename); // outputs an FM instrument to stdout
+	void        OutputSample(int sampleIdx, const char* filename);
 
     uint16_t    GetFreq(ChannelType chan);
 
