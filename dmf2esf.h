@@ -338,6 +338,12 @@ public:
 		m_ptr += sizeof(uint32_t);
 	}
 
+	void Serialise(int32_t& value)
+	{
+		value = *(int32_t*)m_ptr;
+		m_ptr += sizeof(int32_t);
+	}
+
 	void Serialise(std::string& value)
 	{
 		uint8_t length;
@@ -450,7 +456,7 @@ struct DMFFile
 				void Serialise(Stream& stream);
 
 				uint8_t envelopeSize;
-				uint8_t envelopeValue[sMaxEnvelopeSize];
+				int32_t envelopeValue[sMaxEnvelopeSize];
 				uint8_t loopPosition;
 			};
 
@@ -458,6 +464,7 @@ struct DMFFile
 			Envelope envelopeArpeggio;
 			Envelope envelopeDutyNoise;
 			Envelope envelopeWaveTable;
+			uint8_t arpeggioMode;
 		};
 
 		ParamDataFM m_paramsFM;
@@ -503,6 +510,7 @@ struct DMFFile
 		void Serialise(Stream& stream);
 
 		uint32_t m_sampleSize;
+		std::string m_sampleName;
 		uint8_t m_sampleRate;
 		uint8_t m_pitch;
 		uint8_t m_amplitude;

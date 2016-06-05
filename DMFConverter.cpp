@@ -892,6 +892,7 @@ void DMFFile::Instrument::ParamDataPSG::Serialise(Stream& stream)
 {
 	stream.Serialise(envelopeVolume);
 	stream.Serialise(envelopeArpeggio);
+	stream.Serialise(arpeggioMode);
 	stream.Serialise(envelopeDutyNoise);
 	stream.Serialise(envelopeWaveTable);
 }
@@ -935,6 +936,7 @@ void DMFFile::WaveTable::Serialise(Stream& stream)
 void DMFFile::Sample::Serialise(Stream& stream)
 {
 	stream.Serialise(m_sampleSize);
+	stream.Serialise(m_sampleName);
 	stream.Serialise(m_sampleRate);
 	stream.Serialise(m_pitch);
 	stream.Serialise(m_amplitude);
