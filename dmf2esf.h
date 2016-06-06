@@ -460,7 +460,7 @@ struct DMFFile
 				void Serialise(Stream& stream);
 
 				uint8_t envelopeSize;
-				int32_t envelopeValue[sMaxEnvelopeSize];
+				int32_t* envelopeData;
 				uint8_t loopPosition;
 			};
 
@@ -673,7 +673,7 @@ public:
 	bool        ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t CurrRow); // parse channel
     void        ParseChannelEffects(uint8_t chan);
     void        NoteOn(uint8_t chan); // checks channel type and sends appropriate command to ESF
-	void        OutputFMInstrument(int instrumentIdx, const char* filename); // outputs an FM instrument to stdout
+	void        OutputInstrument(int instrumentIdx, const char* filename); // outputs an FM instrument or PSG envelope
 	void        OutputSample(int sampleIdx, const char* filename);
 
     uint16_t    GetFreq(ChannelType chan);

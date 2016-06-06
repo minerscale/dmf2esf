@@ -115,10 +115,10 @@ void ESFOutput::SetVolume(ESFChannel chan, uint8_t volume)
     uint8_t esfcmd = 0x20+(int)chan;
     uint8_t esfvol;
 
-    if(ESFChannelTypes[(int)chan] == CHANNEL_TYPE_PSG || ESFChannelTypes[(int)chan] == CHANNEL_TYPE_PSG4)
-        esfvol = ~volume & 0x0f;
-    else
-        esfvol = ~volume & 0x7f;
+	if(ESFChannelTypes[(int)chan] == CHANNEL_TYPE_PSG || ESFChannelTypes[(int)chan] == CHANNEL_TYPE_PSG4)
+		esfvol = ~volume & 0x0f;
+	else
+		esfvol = ~volume & 0x7f;
 
     if(ASMOut)
     {

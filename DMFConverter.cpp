@@ -216,8 +216,16 @@ bool DMFConverter::Initialize(const char* Filename)
 			for(int i = 0; i < m_dmfFile.m_numInstruments; i++)
 			{
 				char filename[FILENAME_MAX] = { 0 };
-				sprintf_s(filename, FILENAME_MAX, "instr_%02x_%s.eif", i, m_dmfFile.m_instruments[i].m_name.c_str());
-				OutputFMInstrument(i, filename);
+				if(m_dmfFile.m_instruments[i].m_mode == DMFFile::INSTRUMENT_FM)
+				{
+					sprintf_s(filename, FILENAME_MAX, "instr_FM_%02x_%s.eif", i, m_dmfFile.m_instruments[i].m_name.c_str());
+				}
+				else
+				{
+					sprintf_s(filename, FILENAME_MAX, "instr_PSG_%02x_%s.eif", i, m_dmfFile.m_instruments[i].m_name.c_str());
+				}
+
+				OutputInstrument(i, filename);
 			}
 
 			for(int i = 0; i < m_dmfFile.m_numSamples; i++)
@@ -657,7 +665,7 @@ void DMFConverter::NoteOn(uint8_t chan)
     }
 
     /* Skip if this is the PSG3 channel and its frequency value is already used for the noise channel */
-    else if(!(Channels[chan].Id == CHANNEL_PSG3 && PSGNoiseFreq))
+	else if(!(Channels[chan].Id == CHANNEL_PSG3 && PSGNoiseFreq))
     {
         /* Calculate frequency */
         Channels[chan].ToneFreq = 0;    // Reset if this is for a channel where this doesn't make much sense.
@@ -703,48 +711,92 @@ void DMFConverter::NoteOn(uint8_t chan)
 }
 
 /** Extracts FM instrument data and stores as params for the EIF macro */
-void DMFConverter::OutputFMInstrument(int instrumentIdx, const char* filename)
+void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 {
     static int optable[] = {1,2,3,4};
     static uint8_t dttable[] = {7,6,5,0,1,2,3};
 
-	DMFFile::Instrument::ParamDataFM& paramDataIn = m_dmfFile.m_instruments[instrumentIdx].m_paramsFM;
-	ESFFile::ParamDataFM paramDataOut;
-	
-	paramDataOut.alg_fb = (paramDataIn.alg | (paramDataIn.fb << 3));
-	
-	for(int i = 0; i < DMFFile::sMaxOperators; i++)
+	if(m_dmfFile.m_instruments[instrumentIdx].m_mode == DMFFile::INSTRUMENT_FM)
 	{
-		DMFFile::Instrument::ParamDataFM::Operator& opData = paramDataIn.m_operators[i];
+		DMFFile::Instrument::ParamDataFM& paramDataIn = m_dmfFile.m_instruments[instrumentIdx].m_paramsFM;
+		ESFFile::ParamDataFM paramDataOut;
 
-		int op = optable[i];
-		fprintf(stdout, "ar%d  = %d\n", op, (int)opData.ar);  //AR
-		fprintf(stdout, "dr%d  = %d\n", op, (int)opData.dr);  //DR
-		fprintf(stdout, "d2r%d  = %d\n", op, (int)opData.d2r); //D2R
-		fprintf(stdout, "rr%d  = %d\n", op, (int)opData.rr);  //RR
-		fprintf(stdout, "tl%d  = %d\n", op, (int)opData.tl); //TL
-		fprintf(stdout, "sl%d  = %d\n", op, (int)opData.sl); //SL
-		fprintf(stdout, "mul%d = %d\n", op, (int)opData.mul); //MULT
-		fprintf(stdout, "dt%d  = %d\n", op, dttable[opData.dt]); //DT
-		fprintf(stdout, "rs%d  = %d\n", op, (int)opData.rs); //RS
-		fprintf(stdout, "ssg%d = $%02x\n", op, (int)opData.ssg);//SSG-EG
+		paramDataOut.alg_fb = (paramDataIn.alg | (paramDataIn.fb << 3));
 
-		paramDataOut.mul[i] = (opData.mul | (dttable[opData.dt] << 4));
-		paramDataOut.tl[i] = opData.tl;
-		paramDataOut.ar_rs[i] = (opData.ar | (opData.rs << 6));
-		paramDataOut.dr[i] = opData.dr;
-		paramDataOut.sr[i] = opData.d2r;
-		paramDataOut.rr_sl[i] = (opData.rr | (opData.sl << 4));
-		paramDataOut.ssg[i] = opData.ssg;
+		for(int i = 0; i < DMFFile::sMaxOperators; i++)
+		{
+			DMFFile::Instrument::ParamDataFM::Operator& opData = paramDataIn.m_operators[i];
+
+			int op = optable[i];
+			fprintf(stdout, "ar%d  = %d\n", op, (int)opData.ar);  //AR
+			fprintf(stdout, "dr%d  = %d\n", op, (int)opData.dr);  //DR
+			fprintf(stdout, "d2r%d  = %d\n", op, (int)opData.d2r); //D2R
+			fprintf(stdout, "rr%d  = %d\n", op, (int)opData.rr);  //RR
+			fprintf(stdout, "tl%d  = %d\n", op, (int)opData.tl); //TL
+			fprintf(stdout, "sl%d  = %d\n", op, (int)opData.sl); //SL
+			fprintf(stdout, "mul%d = %d\n", op, (int)opData.mul); //MULT
+			fprintf(stdout, "dt%d  = %d\n", op, dttable[opData.dt]); //DT
+			fprintf(stdout, "rs%d  = %d\n", op, (int)opData.rs); //RS
+			fprintf(stdout, "ssg%d = $%02x\n", op, (int)opData.ssg);//SSG-EG
+
+			paramDataOut.mul[i] = (opData.mul | (dttable[opData.dt] << 4));
+			paramDataOut.tl[i] = opData.tl;
+			paramDataOut.ar_rs[i] = (opData.ar | (opData.rs << 6));
+			paramDataOut.dr[i] = opData.dr;
+			paramDataOut.sr[i] = opData.d2r;
+			paramDataOut.rr_sl[i] = (opData.rr | (opData.sl << 4));
+			paramDataOut.ssg[i] = opData.ssg;
+		}
+
+		if(FILE* file = fopen(filename, "w"))
+		{
+			fwrite((char*)&paramDataOut, sizeof(ESFFile::ParamDataFM), 1, file);
+			fclose(file);
+		}
+
+		fprintf(stdout, "\teif\n; end of FM instrument\n");
 	}
-	
-	if(FILE* file = fopen(filename, "w"))
+	else
 	{
-		fwrite((char*)&paramDataOut, sizeof(ESFFile::ParamDataFM), 1, file);
-		fclose(file);
-	}
+		DMFFile::Instrument::ParamDataPSG& paramDataIn = m_dmfFile.m_instruments[instrumentIdx].m_paramsPSG;
 
-    fprintf(stdout,"\teif\n; end of instrument\n");
+		//Create envelope data
+		const int loopDataSize = (paramDataIn.envelopeVolume.loopPosition == 255) ? 0 : 1;
+		const int dataSize = paramDataIn.envelopeVolume.envelopeSize + loopDataSize + 1;
+
+		uint8_t* data = new uint8_t[dataSize];
+
+		int offset = 0;
+		int volumeIdx = 0;
+		while(offset < dataSize)
+		{
+			if(offset == (dataSize - 1))
+			{
+				//End of data
+				data[offset] = 0xFF;
+			}
+			else if(offset == paramDataIn.envelopeVolume.loopPosition)
+			{
+				//Loop start
+				data[offset] = 0xFE;
+			}
+			else
+			{
+				data[offset] = 0xF - paramDataIn.envelopeVolume.envelopeData[volumeIdx];
+				volumeIdx++;
+			}
+
+			offset++;
+		}
+
+		if(FILE* file = fopen(filename, "w"))
+		{
+			fwrite((char*)data, dataSize, 1, file);
+			fclose(file);
+		}
+
+		fprintf(stdout, "\teif\n; end of PSG instrument\n");
+	}
 
     return;
 }
@@ -1004,9 +1056,10 @@ void DMFFile::Instrument::ParamDataPSG::Envelope::Serialise(Stream& stream)
 	stream.Serialise(envelopeSize);
 
 	//Envelope values
+	envelopeData = new int32_t[envelopeSize];
 	for(int i = 0; i < envelopeSize; i++)
 	{
-		stream.Serialise(envelopeValue[i]);
+		stream.Serialise(envelopeData[i]);
 	}
 	
 	//Loop position
