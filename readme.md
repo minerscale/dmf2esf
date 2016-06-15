@@ -2,11 +2,7 @@
 NOTE: This hasn't been changed since the fork, disregard almost everything until I write a replacement :)
 - Matt
 
-     ____  __  __ _____ ____  _____ ____  _____
-    |  _ \|  \/  |  ___|___ \| ____/ ___||  ___|
-    | | | | |\/| | |_    __) |  _| \___ \| |_
-    | |_| | |  | |  _|  / __/| |___ ___) |  _|
-    |____/|_|  |_|_|   |_____|_____|____/|_|
+
 Converts Deflemask DMF modules to Echo Stream Format.
 
 =====================================================
