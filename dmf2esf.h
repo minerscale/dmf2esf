@@ -193,9 +193,137 @@ static uint16_t FMFreqs[12] =
     644,681,722,765,810,858,910,964,1021,1081,1146,1214
 };
 
+struct EffectArpeggio
+{
+	EffectArpeggio() { Arp = EFFECT_OFF; }
+
+	//0xx (arpeggio)
+	EffectMode  Arp;
+	uint16_t    Arp1;
+	uint16_t    Arp2;
+	uint8_t     ArpCounter;
+};
+
+struct EffectPortmento
+{
+	EffectPortmento() { Porta = EFFECT_OFF; }
+
+	//1xx, 2xx (portamento)
+	EffectMode  Porta;
+	uint8_t     PortaSpeed;
+	//uint8_t     CurrentNote;
+	//uint8_t     CurrentOctave;
+	uint32_t    CurrentNoteFrac;
+};
+
+struct EffectPortaNote
+{
+	EffectPortaNote() { PortaNote = EFFECT_OFF; }
+
+	//3xx (porta to note), cancels out 1xx,2xx
+	EffectMode  PortaNote;
+	uint8_t     PortaNoteActive;
+	uint8_t     PortaNoteSpeed;
+	uint8_t     PortaNoteCurrentNote;
+	uint8_t     PortaNoteTargetNote;
+	uint8_t     PortaNoteCurrentOctave;
+	uint8_t     PortaNoteTargetOctave;
+};
+
+struct EffectVibrato
+{
+	EffectVibrato() { Vibrato = EFFECT_OFF; }
+
+	//4xx (vibrato)
+	EffectMode  Vibrato;
+	uint8_t     VibratoActive;
+	uint8_t     VibratoFineDepth;
+	uint8_t     VibratoDepth;
+	uint8_t     VibratoSpeed;
+	uint8_t     VibratoOffset;
+};
+
+// 5xx, 6xx ignored
+
+struct EffectTremolo
+{
+	EffectTremolo() { Tremolo = EFFECT_OFF; }
+
+	// 7xx (tremolo)
+	EffectMode  Tremolo;
+	uint8_t     TremoloActive;
+	uint8_t     TremoloDepth;
+	uint8_t     TremoloSpeed;
+	uint8_t     TremoloOffset;
+};
+
+// 8xx (panning) doesn't need variables
+
+struct EffectVolSlide
+{
+	EffectVolSlide() { VolSlide = EFFECT_OFF; }
+
+	// Axx (volume slide)
+	EffectMode  VolSlide;
+	int8_t      VolSlideValue;
+	uint16_t    CurrVol;
+};
+
+// Bxx (position jump, global effect)
+
+struct EffectRetrigger
+{
+	EffectRetrigger() { Retrig = EFFECT_OFF; }
+
+	// Cxx (note retrig)
+	EffectMode  Retrig;
+	uint8_t     RetrigSpeed;
+};
+
+// Dxx (pattern break, global effect)
+
+struct EffectNoteSlide
+{
+	EffectNoteSlide() { NoteSlide = EFFECT_OFF; }
+
+	// E1xy, E2xy (note slide)
+	EffectMode  NoteSlide;
+	uint8_t     NoteSlideSpeed;
+	uint8_t     NoteSlideFinal;
+};
+
+// E3xx (set vibrato mode)
+// E4xx (set fine vibrato depth)
+// E5xx (fine tune, no support for now)
+// EBxx (set sample bank, no support for now)
+
+struct EffectNoteCut
+{
+	EffectNoteCut() { NoteCut = EFFECT_OFF; }
+
+	// ECxx (note cut)
+	EffectMode  NoteCut;
+	uint8_t     NoteCutActive;
+	uint8_t     NoteCutOffset;
+};
+
+struct EffectNoteDelay
+{
+	EffectNoteDelay() { NoteDelay = EFFECT_OFF; }
+
+	// EDxx (note delay)
+	EffectMode  NoteDelay;
+	uint8_t     NoteDelayOffset;
+};
+
+// EBxx (global fine tune, no support for now)
+// 17xx (DAC enable)
+
+// 10xy (set LFO, not supported by Echo)
+// 11xy, 12xx, 13xx ... (operator modifying effects not supported by Echo)
+
 struct Channel
 {
-
     ChannelId   Id;
     ChannelType Type;
     ESFChannel  ESFId;
@@ -218,72 +346,16 @@ struct Channel
     uint8_t     NewVolume;
     uint8_t     SubtickFX;       // 0=none, >0=yes
 
-    //0xx (arpeggio)
-    EffectMode  Arp;
-    uint16_t    Arp1;
-    uint16_t    Arp2;
-    uint8_t     ArpCounter;
-
-    //1xx, 2xx (portamento)
-    EffectMode  Porta;
-    uint8_t     PortaSpeed;
-
-    //3xx (porta to note), cancels out 1xx,2xx
-    EffectMode  PortaNote;
-    uint8_t     PortaNoteActive;
-    uint8_t     PortaNoteSpeed;
-    uint16_t    PortaNoteTarget;
-
-    //4xx (vibrato)
-    EffectMode  Vibrato;
-    uint8_t     VibratoActive;
-    uint8_t     VibratoFineDepth;
-    uint8_t     VibratoDepth;
-    uint8_t     VibratoSpeed;
-    uint8_t     VibratoOffset;
-
-    // 5xx, 6xx ignored
-    // 7xx (tremolo)
-    EffectMode  Tremolo;
-    uint8_t     TremoloActive;
-    uint8_t     TremoloDepth;
-    uint8_t     TremoloSpeed;
-    uint8_t     TremoloOffset;
-
-    // 8xx (panning) doesn't need variables
-    // Axx (volume slide)
-    EffectMode  VolSlide;
-    uint8_t     VolSlideValue;
-
-    // Bxx (position jump, global effect)
-    // Cxx (note retrig)
-    EffectMode  Retrig;
-    uint8_t     RetrigSpeed;
-
-    // Dxx (pattern break, global effect)
-    // E1xy, E2xy (note slide)
-    EffectMode  NoteSlide;
-    uint8_t     NoteSlideSpeed;
-    uint8_t     NoteSlideFinal;
-
-    // E3xx (set vibrato mode)
-    // E4xx (set fine vibrato depth)
-    // E5xx (fine tune, no support for now)
-    // EBxx (set sample bank, no support for now)
-    // ECxx (note cut)
-    EffectMode  NoteCut;
-    uint8_t     NoteCutActive;
-    uint8_t     NoteCutOffset;
-
-    // EDxx (note delay)
-    EffectMode  NoteDelay;
-    uint8_t     NoteDelayOffset;
-
-    // EBxx (global fine tune, no support for now)
-    // 17xx (DAC enable)
-
-    // 10xy (set LFO, not supported by Echo)
-    // 11xy, 12xx, 13xx ... (operator modifying effects not supported by Echo)
+	EffectArpeggio m_effectArpeggio;
+	EffectPortmento m_effectPortmento;
+	EffectPortaNote m_effectPortaNote;
+	EffectVibrato m_effectVibrato;
+	EffectTremolo m_effectTremolo;
+	EffectVolSlide m_effectVolSlide;
+	EffectRetrigger m_effectRetrigger;
+	EffectNoteSlide m_effectNoteSlide;
+	EffectNoteCut m_effectNoteCut;
+	EffectNoteDelay m_effectNoteDelay;
 };
 
 static const int ChannelCount[] =
@@ -320,6 +392,12 @@ public:
 	template <typename T> void Serialise(T& value)
 	{
 		value.Serialise(*this);
+	}
+
+	void Serialise(int8_t& value)
+	{
+		value = *(int8_t*)m_ptr;
+		m_ptr += sizeof(int8_t);
 	}
 
 	void Serialise(uint8_t& value)
@@ -434,18 +512,18 @@ struct DMFFile
 			{
 				void Serialise(Stream& stream);
 
-				uint8_t am;
-				uint8_t ar;
-				uint8_t dr;
-				uint8_t mul;
-				uint8_t rr;
-				uint8_t sl;
-				uint8_t tl;
-				uint8_t dt2;
-				uint8_t rs;
-				uint8_t dt;
-				uint8_t d2r;
-				uint8_t ssg;
+				int8_t am;
+				int8_t ar;
+				int8_t dr;
+				int8_t mul;
+				int8_t rr;
+				int8_t sl;
+				int8_t tl;
+				int8_t dt2;
+				int8_t rs;
+				int8_t dt;
+				int8_t d2r;
+				int8_t ssg;
 			};
 
 			Operator m_operators[sMaxOperators];
@@ -554,6 +632,7 @@ struct DMFFile
 
 struct ESFFile
 {
+#pragma pack(push, 1)
 	struct ParamDataFM
 	{
 		static const int sMaxOperators = 4;
@@ -567,6 +646,7 @@ struct ESFFile
 		uint8_t rr_sl[sMaxOperators];
 		uint8_t ssg[sMaxOperators];
 	};
+#pragma pack(pop)
 
 	struct ParamDataPSG
 	{
@@ -584,6 +664,8 @@ private:
 
 public:
     std::ofstream ESFFile;
+
+	uint8_t     InstrumentOffset;
 
     uint32_t    WaitCounter; // just increase every time you want to wait...
 
@@ -625,6 +707,8 @@ public:
     uint8_t     InstrumentTable[256];   // instrument conversion table
 	uint8_t     TotalInstruments;
     uint8_t     SampleTable[12];
+
+	uint8_t     InstrumentOffset;
 
     DMFSystem   System;                 // current system
     uint8_t     ChannelCount;           // amount of channels

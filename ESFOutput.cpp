@@ -111,7 +111,8 @@ void ESFOutput::NoteOff(ESFChannel chan)
 
 void ESFOutput::SetVolume(ESFChannel chan, uint8_t volume)
 {
-    this->Wait();
+	this->Wait();
+
     uint8_t esfcmd = 0x20+(int)chan;
     uint8_t esfvol;
 
@@ -209,11 +210,11 @@ void ESFOutput::SetInstrument(ESFChannel chan, uint8_t index)
     {
         ESFFile<<"\tdc.b ";
         hexy(ESFFile,esfcmd,"$");
-        hexy(ESFFile,index,", $");
+		hexy(ESFFile, index + InstrumentOffset, ", $");
         ESFFile<<"\t; Set instrument for channel "<<ESFChanNames[(int)chan].c_str()<<"\n";
         return;
     }
-    ESFFile<<esfcmd<<index;
+    ESFFile<<esfcmd<<(index+InstrumentOffset);
     return;
 }
 

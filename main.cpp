@@ -25,6 +25,8 @@ int main(int argc, char *argv[])
 	fprintf(stdout, "Includes source from Secret Rabbit Code, Licensed under GPLv1, see libsamplerate\COPYING.\n\n");
 //    fprintf(stdout, "Not licensed under any license;\nyou may not do anything at all with this program.\n\n");
 
+	int instrumentIdxOffset = 0;
+
     if(argc > 1)
     {
         for(int i = 0; i < argc; ++i)
@@ -49,6 +51,17 @@ int main(int argc, char *argv[])
                 ExCommands = true;
                 continue;
             }
+			Opt = strcmp(argv[i], "-instroffset");
+			if(!Opt)
+			{
+				i++;
+				if(i < argc)
+				{
+					instrumentIdxOffset = atoi(argv[i]);
+				}
+
+				continue;
+			}
 
             if(OutputId == 0)
             {
@@ -153,6 +166,9 @@ int main(int argc, char *argv[])
         {
             esf = new ESFOutput(string(argv[OutputId]));
             dmf = new DMFConverter(&esf);
+			
+			esf->InstrumentOffset = instrumentIdxOffset;
+			dmf->InstrumentOffset = instrumentIdxOffset;
 
             if(dmf->Initialize(argv[InputId]))
             {

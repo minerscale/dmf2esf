@@ -1,6 +1,18 @@
 #include "dmf2esf.h"
 #include "libsamplerate\src\samplerate.h"
 
+template <typename T> T Clamp(T value, T min, T max)
+{
+	T clamped = value;
+
+	if(value < min)
+		clamped = min;
+	else if(value > max)
+		clamped = max;
+
+	return clamped;
+}
+
 using namespace std;
 
 const int DMFFile::sSampleRates[6] =
@@ -48,7 +60,6 @@ DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
         Channels[i].EffectCount = 0;
         Channels[i].Note = 0;
         Channels[i].Octave = 0;
-        Channels[i].ArpCounter = 0;
         Channels[i].ToneFreq = 0;
         Channels[i].NoteFreq = 0;
         Channels[i].LastFreq = 0;
@@ -58,36 +69,6 @@ DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
         Channels[i].Volume = 0xff;
         Channels[i].NewVolume = 0;
         Channels[i].SubtickFX = 0;
-        Channels[i].Arp = EFFECT_OFF;
-        Channels[i].Arp1 = 0;
-        Channels[i].Arp2 = 0;
-        Channels[i].Porta = EFFECT_OFF;
-        Channels[i].PortaSpeed = 0;
-        Channels[i].PortaNote = EFFECT_OFF;
-        Channels[i].PortaNoteActive = 0;
-        Channels[i].PortaNoteSpeed = 0;
-        Channels[i].PortaNoteTarget = 0;
-        Channels[i].Vibrato = EFFECT_OFF;
-        Channels[i].VibratoActive = 0;
-        Channels[i].VibratoFineDepth = 0;
-        Channels[i].VibratoDepth = 0;
-        Channels[i].VibratoSpeed = 0;
-        Channels[i].VibratoOffset = 0;
-        Channels[i].Tremolo = EFFECT_OFF;
-        Channels[i].TremoloActive = 0;
-        Channels[i].TremoloDepth = 0;
-        Channels[i].TremoloSpeed = 0;
-        Channels[i].TremoloOffset = 0;
-        Channels[i].VolSlide = EFFECT_OFF;
-        Channels[i].VolSlideValue = 0;
-        Channels[i].Retrig = EFFECT_OFF;;
-        Channels[i].RetrigSpeed = 0;
-        Channels[i].NoteSlide = EFFECT_OFF;
-        Channels[i].NoteSlideSpeed = 0;
-        Channels[i].NoteSlideFinal = 0;
-        Channels[i].NoteCut = EFFECT_OFF;
-        Channels[i].NoteCutActive = 0;
-        Channels[i].NoteCutOffset = 0;
         LoopState[i] = Channels[i];
     }
 
@@ -218,11 +199,13 @@ bool DMFConverter::Initialize(const char* Filename)
 				char filename[FILENAME_MAX] = { 0 };
 				if(m_dmfFile.m_instruments[i].m_mode == DMFFile::INSTRUMENT_FM)
 				{
-					sprintf_s(filename, FILENAME_MAX, "instr_FM_%02x_%s.eif", i, m_dmfFile.m_instruments[i].m_name.c_str());
+					//sprintf_s(filename, FILENAME_MAX, "instr_FM_%02x_%s.eif", i + InstrumentOffset, m_dmfFile.m_instruments[i].m_name.c_str());
+					sprintf_s(filename, FILENAME_MAX, "instr_%02x.eif", i + InstrumentOffset);
 				}
 				else
 				{
-					sprintf_s(filename, FILENAME_MAX, "instr_PSG_%02x_%s.eif", i, m_dmfFile.m_instruments[i].m_name.c_str());
+					//sprintf_s(filename, FILENAME_MAX, "instr_PSG_%02x_%s.eif", i + InstrumentOffset, m_dmfFile.m_instruments[i].m_name.c_str());
+					sprintf_s(filename, FILENAME_MAX, "instr_%02x.eif", i + InstrumentOffset);
 				}
 
 				OutputInstrument(i, filename);
@@ -363,20 +346,30 @@ bool DMFConverter::Parse()
 /** @brief Parses pattern data for a single channel **/
 bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t CurrRow)
 {
+	Channel& channel = Channels[chan];
 
     uint8_t EffectCounter;
     uint8_t EffectType;
     uint8_t EffectParam;
 
     /* Clean up effects */
-    Channels[chan].NoteCut = EFFECT_OFF;
-    Channels[chan].NoteDelay = EFFECT_OFF;
+    Channels[chan].m_effectNoteCut.NoteCut = EFFECT_OFF;
+    Channels[chan].m_effectNoteDelay.NoteDelay = EFFECT_OFF;
 
     /* Get row data */
 	Channels[chan].Note = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_note;
 	Channels[chan].Octave = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_octave;
 	Channels[chan].NewVolume = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_volume;
 	Channels[chan].NewInstrument = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_instrument;
+
+	uint8_t nextNote = 0;
+	uint8_t nextOctave = 0;
+
+	if(CurrRow < m_dmfFile.m_numNoteRowsPerPattern - 1)
+	{
+		nextNote = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow + 1].m_note;
+		nextOctave = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow + 1].m_octave;
+	}
 
     /* Instrument updated? */
     if(Channels[chan].NewInstrument != Channels[chan].Instrument && Channels[chan].NewInstrument != 0xff)
@@ -443,9 +436,14 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
         Channels[chan].ToneFreq = 0;
         Channels[chan].LastFreq = 0;
         Channels[chan].NewFreq = 0;
+
+		//Turn off effects which stop at note off
+		channel.m_effectPortaNote.PortaNote = EFFECT_OFF;
+		channel.m_effectPortmento.Porta == EFFECT_OFF;
+		channel.m_effectVolSlide.VolSlide = EFFECT_OFF;
     }
     /* Note on? */
-    else if(Channels[chan].Note != 0 && Channels[chan].Octave != 0)
+    else if(Channels[chan].Note != 0)
     {
         /* Convert octave/note format to something that makes more sense */
         if(Channels[chan].Note == 12)
@@ -458,8 +456,10 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
             fprintf(stdout, "%s%x ",NoteNames[Channels[chan].Note].c_str(),(int)Channels[chan].Octave);
         #endif
 
-        /* Turn off the tone portamento */
-        Channels[chan].PortaNote = EFFECT_OFF;
+        //Turn off effects which stop at next note
+		channel.m_effectPortaNote.PortaNote = EFFECT_OFF;
+		channel.m_effectPortmento.Porta == EFFECT_OFF;
+		channel.m_effectVolSlide.VolSlide = EFFECT_OFF;
 
         /* Parse some effects that will affect the note on */
         for(EffectCounter=0;EffectCounter<Channels[chan].EffectCount;EffectCounter++)
@@ -467,16 +467,16 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 			EffectType = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
 			EffectParam = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectValue;
             if(EffectType == 0x03) // Tone portamento.
-                Channels[chan].PortaNote = EFFECT_SCHEDULE;
+				Channels[chan].m_effectPortaNote.PortaNote = EFFECT_SCHEDULE;
             else if(EffectType == 0xed) // Note delay.
             {
-                Channels[chan].NoteDelay = EFFECT_SCHEDULE;
-                Channels[chan].NoteDelayOffset = EffectParam;
+                Channels[chan].m_effectNoteDelay.NoteDelay = EFFECT_SCHEDULE;
+				Channels[chan].m_effectNoteDelay.NoteDelayOffset = EffectParam;
             }
         }
 
         /* If note delay or tone portamento is off, send the note on command already! */
-        if(Channels[chan].NoteDelay == EFFECT_OFF || Channels[chan].PortaNote == EFFECT_OFF)
+		if(Channels[chan].m_effectNoteDelay.NoteDelay == EFFECT_OFF || Channels[chan].m_effectPortaNote.PortaNote == EFFECT_OFF)
             this->NoteOn(chan);
 
     }
@@ -488,10 +488,109 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
     }
 
     #if MODDATA
-        fprintf(stdout, "%02x %02x, ",(int)Channels[chan].NewVolume,(int)Channels[chan].NewInstrument);
+    fprintf(stdout, "%02x %02x, ",(int)Channels[chan].NewVolume,(int)Channels[chan].NewInstrument);
     #endif
 
-    /* Parse effects */
+	//Process active effects
+	if(0)//channel.m_effectPortmento.Porta != EFFECT_OFF)
+	{
+		//if(channel.m_effectPortmento.Porta == EFFECT_UP)
+		//{
+		//	channel.m_effectPortmento.CurrentNote++;
+		//	if(channel.m_effectPortmento.CurrentNote == 12)
+		//	{
+		//		channel.m_effectPortmento.CurrentNote = 0;
+		//		channel.m_effectPortmento.CurrentOctave++;
+		//	}
+		//}
+		//else if(channel.m_effectPortmento.Porta == EFFECT_DOWN)
+		//{
+		//	channel.m_effectPortmento.CurrentNote--;
+		//	if(channel.m_effectPortmento.CurrentNote == (uint8_t)-1)
+		//	{
+		//		channel.m_effectPortmento.CurrentNote = 11;
+		//		channel.m_effectPortmento.CurrentOctave--;
+		//	}
+		//}
+
+		if(channel.m_effectPortmento.Porta == EFFECT_UP)
+		{
+			channel.m_effectPortmento.CurrentNoteFrac += (double)channel.m_effectPortmento.PortaSpeed;
+		}
+		else if(channel.m_effectPortmento.Porta == EFFECT_DOWN)
+		{
+			channel.m_effectPortmento.CurrentNoteFrac -= (double)channel.m_effectPortmento.PortaSpeed;
+		}
+
+		//Note on
+		channel.Note = (channel.m_effectPortmento.CurrentNoteFrac / 60) % 12;
+		channel.Octave = ((channel.m_effectPortmento.CurrentNoteFrac / 60) / 12) + 1;
+		NoteOn(chan);
+	}
+
+	if(Channels[chan].m_effectPortaNote.PortaNote != EFFECT_OFF)
+	{
+		//TODO: handle octave change
+		//uint8_t currentNote = Channels[chan].m_effectPortaNote.PortaNoteCurrentNote;
+		//uint8_t currentOctave = Channels[chan].m_effectPortaNote.PortaNoteCurrentOctave;
+		//uint8_t targetNote = Channels[chan].m_effectPortaNote.PortaNoteTargetNote;
+		//uint8_t targetOctave = Channels[chan].m_effectPortaNote.PortaNoteTargetOctave;
+		//uint8_t speed = Channels[chan].m_effectPortaNote.PortaNoteSpeed;
+		//
+		////Lerp towards target at speed
+		//if((targetNote | targetOctave << 8) > (currentNote | currentOctave << 8))
+		//{
+		//	currentNote += speed;
+		//	if(currentNote > targetNote)
+		//		currentNote = targetNote;
+		//}
+		//else if((targetNote | targetOctave << 8) < (currentNote | currentOctave << 8))
+		//{
+		//	currentNote -= speed;
+		//	if(currentNote < targetNote)
+		//		currentNote = targetNote;
+		//}
+		//
+		////If target reached, effect finished
+		//if(currentNote == targetNote)
+		//{
+		//	Channels[chan].m_effectPortaNote.PortaNote == EFFECT_OFF;
+		//}
+		//
+		////Note on
+		//Channels[chan].Note = currentNote;
+		//NoteOn(chan);
+		//
+		////Update effect history data
+		//Channels[chan].m_effectPortaNote.PortaNoteCurrentNote = currentNote;
+		//Channels[chan].m_effectPortaNote.PortaNoteCurrentOctave = currentOctave;
+	}
+
+	if(channel.m_effectVolSlide.VolSlide != EFFECT_OFF)
+	{
+		//Calc currunt volume
+		channel.m_effectVolSlide.CurrVol = Clamp(channel.m_effectVolSlide.CurrVol + channel.m_effectVolSlide.VolSlideValue, 0, 0x7f);
+
+		//Backup current delay
+		uint32_t delay = esf->WaitCounter;
+
+		//Delay 1 tick
+		esf->WaitCounter = 1;
+		
+		//Set volume (includes delay)
+		esf->SetVolume(channel.ESFId, channel.m_effectVolSlide.CurrVol);
+
+		//Restore original delay
+		esf->WaitCounter = delay;
+
+		//Decrease delay, SetVol counts as a tick
+		if(esf->WaitCounter)
+		{
+			esf->WaitCounter--;
+		}
+	}
+
+    //Process new effects
     for(EffectCounter=0;EffectCounter<Channels[chan].EffectCount;EffectCounter++)
     {
 		EffectType = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
@@ -508,7 +607,7 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
         case 0x00: // Arpeggio
             if(EffectParam != 0)
             {
-                Channels[chan].Arp = EFFECT_NORMAL;
+                Channels[chan].m_effectArpeggio.Arp = EFFECT_NORMAL;
                 uint8_t ArpOct;
                 uint8_t ArpNote;
 
@@ -523,11 +622,11 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 
                 /* PSG */
                 if(Channels[chan].Type == CHANNEL_TYPE_PSG)
-                    Channels[chan].Arp1 = PSGFreqs[ArpNote][ArpOct-2];
+					Channels[chan].m_effectArpeggio.Arp1 = PSGFreqs[ArpNote][ArpOct - 2];
                 else
-                    Channels[chan].Arp1 = (Channels[chan].Octave<<11)|FMFreqs[Channels[chan].Note];
+					Channels[chan].m_effectArpeggio.Arp1 = (Channels[chan].Octave << 11) | FMFreqs[Channels[chan].Note];
 
-                Channels[chan].Arp2 = 0;
+				Channels[chan].m_effectArpeggio.Arp2 = 0;
 
                 /* do second freq */
                 if((EffectParam & 0x0f) > 0)
@@ -542,22 +641,40 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 
                     /* PSG */
                     if(Channels[chan].Type == CHANNEL_TYPE_PSG)
-                        Channels[chan].Arp2 = PSGFreqs[ArpNote][ArpOct-2];
+						Channels[chan].m_effectArpeggio.Arp2 = PSGFreqs[ArpNote][ArpOct - 2];
                     else
-                        Channels[chan].Arp2 = (Channels[chan].Octave<<11)|FMFreqs[Channels[chan].Note];
+						Channels[chan].m_effectArpeggio.Arp2 = (Channels[chan].Octave << 11) | FMFreqs[Channels[chan].Note];
                 }
 
             }
             else
             {
-                Channels[chan].Arp = EFFECT_OFF;
+				Channels[chan].m_effectArpeggio.Arp = EFFECT_OFF;
             }
             break;
         case 0x01: // Portamento up
+			channel.m_effectPortmento.Porta = EFFECT_UP;
+			channel.m_effectPortmento.PortaSpeed = EffectParam;
+			//channel.m_effectPortmento.CurrentNote = channel.Note;
+			//channel.m_effectPortmento.CurrentOctave = channel.Octave;
+			//channel.m_effectPortmento.CurrentFreqOffset = 0;
+			channel.m_effectPortmento.CurrentNoteFrac = ((channel.Octave * 12) + channel.Note) * 60;
             break;
         case 0x02: // Portamento down
+			channel.m_effectPortmento.Porta = EFFECT_DOWN;
+			channel.m_effectPortmento.PortaSpeed = EffectParam;
+			//channel.m_effectPortmento.CurrentNote = channel.Note;
+			//channel.m_effectPortmento.CurrentOctave = channel.Octave;
+			//channel.m_effectPortmento.CurrentFreqOffset = 0;
+			channel.m_effectPortmento.CurrentNoteFrac = ((channel.Octave * 12) + channel.Note) * 60;
             break;
         case 0x03: // Tone portamento
+			//channel.m_effectPortaNote.PortaNote = EFFECT_UP;
+			//channel.m_effectPortaNote.PortaNoteSpeed = EffectParam;
+			//channel.m_effectPortaNote.PortaNoteCurrentNote = Channels[chan].Note;
+			//channel.m_effectPortaNote.PortaNoteCurrentOctave = Channels[chan].Octave;
+			//channel.m_effectPortaNote.PortaNoteTargetNote = nextNote;
+			//channel.m_effectPortaNote.PortaNoteTargetOctave = nextOctave;
             break;
         case 0x04: // Vibrato
             break;
@@ -577,8 +694,16 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
         case 0x0f: // Set speed 2
             TickTime2 = EffectParam;
             break;
-        case 0x0a: // Volume slide
-            break;
+		case 0x0a: // Volume slide
+		{
+			int upSlide = (EffectParam & 0xF0);
+			int downSlide = -(EffectParam & 0x0F);
+			channel.m_effectVolSlide.VolSlideValue = upSlide + downSlide;
+			channel.m_effectVolSlide.VolSlide = (channel.m_effectVolSlide.VolSlideValue > 0) ? EFFECT_UP : EFFECT_DOWN;
+			channel.m_effectVolSlide.CurrVol = channel.Volume;
+			break;
+		}
+			
         case 0x0c: // Note retrig
             break;
         case 0xe1: // Note slide up
@@ -697,7 +822,7 @@ void DMFConverter::NoteOn(uint8_t chan)
 				sampleIdx = Channels[chan].Note;
 
 			//Offset sample index by max instruments (PCM data should be listed after instruments in Echo pointer list)
-			int pcmInstrIdx = TotalInstruments + sampleIdx;
+			int pcmInstrIdx = TotalInstruments + InstrumentOffset + sampleIdx;
 
 			//PCM note on
 			esf->NoteOn(ESF_DAC, pcmInstrIdx);
@@ -714,7 +839,7 @@ void DMFConverter::NoteOn(uint8_t chan)
 void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 {
     static int optable[] = {1,2,3,4};
-    static uint8_t dttable[] = {7,6,5,0,1,2,3};
+    static int8_t dttable[] = {-3,-2,-1,0,1,2,3};
 
 	if(m_dmfFile.m_instruments[instrumentIdx].m_mode == DMFFile::INSTRUMENT_FM)
 	{
@@ -722,6 +847,9 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 		ESFFile::ParamDataFM paramDataOut;
 
 		paramDataOut.alg_fb = (paramDataIn.alg | (paramDataIn.fb << 3));
+
+		fprintf(stdout, "alg  = %d\n", (int)paramDataIn.alg);  //ALG
+		fprintf(stdout, "fb  = %d\n", (int)paramDataIn.fb);  //FB
 
 		for(int i = 0; i < DMFFile::sMaxOperators; i++)
 		{
@@ -739,16 +867,28 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 			fprintf(stdout, "rs%d  = %d\n", op, (int)opData.rs); //RS
 			fprintf(stdout, "ssg%d = $%02x\n", op, (int)opData.ssg);//SSG-EG
 
-			paramDataOut.mul[i] = (opData.mul | (dttable[opData.dt] << 4));
+			// Detune = -3 to 3, bit 4 is primitive, inverted sign
+			uint8_t dt = 0;
+			if(dttable[opData.dt] < 0)
+			{
+				dt = abs(dttable[opData.dt]) & 0x3;
+				dt |= 0x4;
+			}
+			else
+			{
+				dt = dttable[opData.dt] & 0x3;
+			}
+
+			paramDataOut.mul[i] = (opData.mul | (dt << 4));
 			paramDataOut.tl[i] = opData.tl;
 			paramDataOut.ar_rs[i] = (opData.ar | (opData.rs << 6));
-			paramDataOut.dr[i] = opData.dr;
+			paramDataOut.dr[i] = (opData.dr | (opData.am << 7));
 			paramDataOut.sr[i] = opData.d2r;
 			paramDataOut.rr_sl[i] = (opData.rr | (opData.sl << 4));
 			paramDataOut.ssg[i] = opData.ssg;
 		}
 
-		if(FILE* file = fopen(filename, "w"))
+		if(FILE* file = fopen(filename, "wb"))
 		{
 			fwrite((char*)&paramDataOut, sizeof(ESFFile::ParamDataFM), 1, file);
 			fclose(file);
@@ -1080,10 +1220,7 @@ void DMFFile::WaveTable::Serialise(Stream& stream)
 
 	for(int i = 0; i < m_waveTableSize; i++)
 	{
-		for(int j = 0; j < sWaveTableDataSize; j++)
-		{
-			stream.Serialise(m_waveTableData[(i * sWaveTableDataSize) + j]);
-		}
+		stream.Serialise(m_waveTableData[i]);
 	}
 }
 
