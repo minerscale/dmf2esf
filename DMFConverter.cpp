@@ -32,8 +32,8 @@ DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
     /* Initialize all the variables */
     SongType = 0;
     TickBase = 0;
-    TickTime1 = 0;
-    TickTime2 = 0;
+    TickTimeEvenRow = 0;
+    TickTimeOddRow = 0;
     RegionType = 0;
     CurrPattern = 0;
     CurrRow = 0;
@@ -66,7 +66,8 @@ DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
         Channels[i].NewFreq = 0;
         Channels[i].Instrument = 0xff;
         Channels[i].NewInstrument = 0;
-        Channels[i].Volume = 0xff;
+        Channels[i].Volume = 0x7f;
+		Channels[i].LastVolume = 0x7f;
         Channels[i].NewVolume = 0;
         Channels[i].SubtickFX = 0;
         LoopState[i] = Channels[i];
@@ -185,8 +186,8 @@ bool DMFConverter::Initialize(const char* Filename)
 
             /* Extract useful module metadata */
 			TickBase = m_dmfFile.m_timeBase;
-			TickTime1 = m_dmfFile.m_tickTime1;
-			TickTime2 = m_dmfFile.m_tickTime2;
+			TickTimeEvenRow = m_dmfFile.m_tickTimeEven;
+			TickTimeOddRow = m_dmfFile.m_tickTimeOdd;
 			RegionType = m_dmfFile.m_framesMode;
 			// custom HZ is ignored (4, 5, 6, 7)
 			TotalRowsPerPattern = m_dmfFile.m_numNoteRowsPerPattern;
@@ -298,17 +299,11 @@ bool DMFConverter::Parse()
             if(LoopFound == true && LoopPattern == CurrPattern && LoopRow == CurrRow)
                 esf->SetLoop();
 
-            /* Calculate timing */
-            uint8_t timing = TickTime1*(TickBase+1);
-            if(CurrRow % 2 != 0)
-                timing = TickTime2*(TickBase+1);
+            //Calculate number of ticks per row - Deflemask exports 1 tick time for even rows, and another for odd rows
+			uint8_t ticksPerRow = (CurrRow & 1) ? (TickTimeOddRow*(TickBase + 1)) :( TickTimeEvenRow*(TickBase + 1));
 
-            /* Do Effects */
-            for(int a=0;a<timing;a++)
-            {
-
-                esf->WaitCounter++;
-            }
+			//Increment delay counter, will be used and cleared on next command
+            esf->WaitCounter += ticksPerRow;
 
             /* Are we at the loop end? If so, start playing the loop row */
             if(LoopFlag == true)
@@ -348,6 +343,9 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 {
 	Channel& channel = Channels[chan];
 
+	//Calculate number of ticks per row - Deflemask exports 1 tick time for even rows, and another for odd rows
+	uint8_t ticksPerRow = (CurrRow & 1) ? (TickTimeOddRow * (TickBase + 1)) : (TickTimeEvenRow * (TickBase + 1));
+
     uint8_t EffectCounter;
     uint8_t EffectType;
     uint8_t EffectParam;
@@ -381,15 +379,18 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
             esf->SetInstrument(Channels[chan].ESFId,Channels[chan].Instrument);
 
         /* Echo resets the volume if the instrument is changed (FM only...) */
-        if(Channels[chan].Type != CHANNEL_TYPE_PSG && Channels[chan].Type != CHANNEL_TYPE_PSG4)
-            Channels[chan].Volume = 0x7f;
-
+		if(Channels[chan].Type != CHANNEL_TYPE_PSG && Channels[chan].Type != CHANNEL_TYPE_PSG4)
+		{
+			Channels[chan].Volume = 0x7f;
+			Channels[chan].LastVolume = 0x7f;
+		}
     }
 
     /* Volume updated? */
     if(Channels[chan].NewVolume != Channels[chan].Volume && Channels[chan].NewVolume != 0xff)
     {
         Channels[chan].Volume = Channels[chan].NewVolume;
+		Channels[chan].LastVolume = Channels[chan].NewVolume;
         if(Channels[chan].Type == CHANNEL_TYPE_FM || CHANNEL_TYPE_FM6)
             esf->SetVolume(Channels[chan].ESFId,(Channels[chan].Volume));
         else if(Channels[chan].Type == CHANNEL_TYPE_PSG || CHANNEL_TYPE_PSG4)
@@ -568,26 +569,31 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 
 	if(channel.m_effectVolSlide.VolSlide != EFFECT_OFF)
 	{
-		//Calc currunt volume
-		channel.m_effectVolSlide.CurrVol = Clamp(channel.m_effectVolSlide.CurrVol + channel.m_effectVolSlide.VolSlideValue, 0, 0x7f);
+		int i = 0;
 
-		//Backup current delay
-		uint32_t delay = esf->WaitCounter;
-
-		//Delay 1 tick
-		esf->WaitCounter = 1;
-		
-		//Set volume (includes delay)
-		esf->SetVolume(channel.ESFId, channel.m_effectVolSlide.CurrVol);
-
-		//Restore original delay
-		esf->WaitCounter = delay;
-
-		//Decrease delay, SetVol counts as a tick
-		if(esf->WaitCounter)
+		for(i = 0; i < ticksPerRow && channel.m_effectVolSlide.VolSlide != EFFECT_OFF; i++)
 		{
-			esf->WaitCounter--;
+			//Calc current volume
+			channel.m_effectVolSlide.CurrVol = Clamp(channel.m_effectVolSlide.CurrVol + channel.m_effectVolSlide.VolSlideValue, 0, 0x7f);
+
+			//Set volume (includes current delay)
+			esf->SetVolume(channel.ESFId, channel.m_effectVolSlide.CurrVol);
+
+			//Delay 1 tick
+			esf->WaitCounter += 1;
+
+			//Set channel volume history
+			channel.LastVolume = channel.m_effectVolSlide.CurrVol;
+
+			//If hit the volume limits, finished
+			if(channel.m_effectVolSlide.CurrVol == 0 || channel.m_effectVolSlide.CurrVol == 0x7f)
+			{
+				channel.m_effectVolSlide.VolSlide = EFFECT_OFF;
+			}
 		}
+
+		//Decrease existing tick count
+		esf->WaitCounter -= i;
 	}
 
     //Process new effects
@@ -689,18 +695,18 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
                 esf->SetParams(Channels[chan].ESFId,(EffectParam & 0x10)<<3 | (EffectParam & 0x01)<<6);
             break;
         case 0x09: // Set speed 1
-            TickTime1 = EffectParam;
+            TickTimeEvenRow = EffectParam;
             break;
         case 0x0f: // Set speed 2
-            TickTime2 = EffectParam;
+            TickTimeOddRow = EffectParam;
             break;
 		case 0x0a: // Volume slide
 		{
-			int upSlide = (EffectParam & 0xF0);
+			int upSlide = (EffectParam & 0xF0) >> 4;
 			int downSlide = -(EffectParam & 0x0F);
 			channel.m_effectVolSlide.VolSlideValue = upSlide + downSlide;
 			channel.m_effectVolSlide.VolSlide = (channel.m_effectVolSlide.VolSlideValue > 0) ? EFFECT_UP : EFFECT_DOWN;
-			channel.m_effectVolSlide.CurrVol = channel.Volume;
+			channel.m_effectVolSlide.CurrVol = channel.LastVolume;
 			break;
 		}
 			
@@ -1030,8 +1036,8 @@ void DMFFile::Serialise(Stream& stream)
 
 	//Timing
 	stream.Serialise(m_timeBase);
-	stream.Serialise(m_tickTime1);
-	stream.Serialise(m_tickTime2);
+	stream.Serialise(m_tickTimeEven);
+	stream.Serialise(m_tickTimeOdd);
 	stream.Serialise(m_framesMode);
 	stream.Serialise(m_usingCustomHz);
 	stream.Serialise(m_customHz1);

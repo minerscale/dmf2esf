@@ -344,6 +344,7 @@ struct Channel
     uint8_t     NewInstrument;
     uint8_t     Volume;
     uint8_t     NewVolume;
+	uint8_t     LastVolume;
     uint8_t     SubtickFX;       // 0=none, >0=yes
 
 	EffectArpeggio m_effectArpeggio;
@@ -610,8 +611,8 @@ struct DMFFile
 	uint8_t m_highlightA;
 	uint8_t m_highlightB;
 	uint8_t m_timeBase;
-	uint8_t m_tickTime1;
-	uint8_t m_tickTime2;
+	uint8_t m_tickTimeEven;
+	uint8_t m_tickTimeOdd;
 	uint8_t m_framesMode;
 	uint8_t m_usingCustomHz;
 	uint8_t m_customHz1;
@@ -717,8 +718,8 @@ public:
     uint8_t     SongType;               // song type (BGM, SFX)
 
     uint8_t     TickBase;               // DMF timing
-    uint8_t     TickTime1;
-    uint8_t     TickTime2;
+    uint8_t     TickTimeEvenRow;
+    uint8_t     TickTimeOddRow;
 
     uint8_t     CurrPattern;            // in pattern matrix.
     uint8_t     CurrRow;                // in pattern
