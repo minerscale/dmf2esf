@@ -49,6 +49,7 @@ DMFConverter::DMFConverter(ESFOutput ** esfout) // ctor
     RegionType = 0;
 
 	UseTables = false;
+	VerboseLog = false;
 
     //NoiseMode = PSG_WHITE_NOISE_HI;
     for(int i=0; i<10; i++)
@@ -99,7 +100,11 @@ bool DMFConverter::Initialize(const char* Filename)
     ifstream file (Filename, ios::in|ios::binary|ios::ate);
     if (file.is_open())
     {
-        fprintf(stderr, "Loading file: %s\n", Filename);
+		if(VerboseLog)
+		{
+			fprintf(stderr, "Loading file: %s\n", Filename);
+		}
+
         file_size = file.tellg();
         comp_data = new char [file_size];
         file.seekg (0, ios::beg);
@@ -265,7 +270,12 @@ bool DMFConverter::Initialize(const char* Filename)
 bool DMFConverter::Parse()
 {
     uint8_t CurrChannel;
-    fprintf(stdout, "Now parsing pattern data...\n");
+
+	if(VerboseLog)
+	{
+		fprintf(stdout, "Now parsing pattern data...\n");
+	}
+
     NextRow = 0;
     for(CurrPattern=0;CurrPattern<TotalPatterns;CurrPattern++)
     {
@@ -300,7 +310,7 @@ bool DMFConverter::Parse()
                 esf->SetLoop();
 
             //Calculate number of ticks per row - Deflemask exports 1 tick time for even rows, and another for odd rows
-			uint8_t ticksPerRow = (CurrRow & 1) ? (TickTimeOddRow*(TickBase + 1)) :( TickTimeEvenRow*(TickBase + 1));
+			uint8_t ticksPerRow = (CurrRow & 1) ? (TickTimeOddRow*(TickBase + 1)) : ( TickTimeEvenRow*(TickBase + 1));
 
 			//Increment delay counter, will be used and cleared on next command
             esf->WaitCounter += ticksPerRow;
@@ -421,7 +431,10 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
             if(EffectParam & 0x0F)
                 PSGPeriodicNoise = 1;
 
-            fprintf(stdout,"psg val = %d %d\n",(int) PSGNoiseFreq, (int) PSGPeriodicNoise);
+			if(VerboseLog)
+			{
+				fprintf(stdout, "psg val = %d %d\n", (int)PSGNoiseFreq, (int)PSGPeriodicNoise);
+			}
             //fprintf(stderr, "effect %02x%02x: PSG noise mode %d %d\n",(int)EffectType,(int)EffectParam,(int)PSGNoiseFreq,(int)PSGPeriodicNoise);
         }
     }
@@ -789,7 +802,11 @@ void DMFConverter::NoteOn(uint8_t chan)
             case 1: // C
                 break;
             }
-            fprintf(stdout,"noisemode = %d\n",(int) NoiseMode);
+
+			if(VerboseLog)
+			{
+				fprintf(stdout, "noisemode = %d\n", (int)NoiseMode);
+			}
         }
 
         esf->NoteOn(Channels[chan].ESFId,NoiseMode);
@@ -854,24 +871,31 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 
 		paramDataOut.alg_fb = (paramDataIn.alg | (paramDataIn.fb << 3));
 
-		fprintf(stdout, "alg  = %d\n", (int)paramDataIn.alg);  //ALG
-		fprintf(stdout, "fb  = %d\n", (int)paramDataIn.fb);  //FB
+		if(VerboseLog)
+		{
+			fprintf(stdout, "alg  = %d\n", (int)paramDataIn.alg);  //ALG
+			fprintf(stdout, "fb  = %d\n", (int)paramDataIn.fb);  //FB
+		}
 
 		for(int i = 0; i < DMFFile::sMaxOperators; i++)
 		{
 			DMFFile::Instrument::ParamDataFM::Operator& opData = paramDataIn.m_operators[i];
 
 			int op = optable[i];
-			fprintf(stdout, "ar%d  = %d\n", op, (int)opData.ar);  //AR
-			fprintf(stdout, "dr%d  = %d\n", op, (int)opData.dr);  //DR
-			fprintf(stdout, "d2r%d  = %d\n", op, (int)opData.d2r); //D2R
-			fprintf(stdout, "rr%d  = %d\n", op, (int)opData.rr);  //RR
-			fprintf(stdout, "tl%d  = %d\n", op, (int)opData.tl); //TL
-			fprintf(stdout, "sl%d  = %d\n", op, (int)opData.sl); //SL
-			fprintf(stdout, "mul%d = %d\n", op, (int)opData.mul); //MULT
-			fprintf(stdout, "dt%d  = %d\n", op, dttable[opData.dt]); //DT
-			fprintf(stdout, "rs%d  = %d\n", op, (int)opData.rs); //RS
-			fprintf(stdout, "ssg%d = $%02x\n", op, (int)opData.ssg);//SSG-EG
+
+			if(VerboseLog)
+			{
+				fprintf(stdout, "ar%d  = %d\n", op, (int)opData.ar);  //AR
+				fprintf(stdout, "dr%d  = %d\n", op, (int)opData.dr);  //DR
+				fprintf(stdout, "d2r%d  = %d\n", op, (int)opData.d2r); //D2R
+				fprintf(stdout, "rr%d  = %d\n", op, (int)opData.rr);  //RR
+				fprintf(stdout, "tl%d  = %d\n", op, (int)opData.tl); //TL
+				fprintf(stdout, "sl%d  = %d\n", op, (int)opData.sl); //SL
+				fprintf(stdout, "mul%d = %d\n", op, (int)opData.mul); //MULT
+				fprintf(stdout, "dt%d  = %d\n", op, dttable[opData.dt]); //DT
+				fprintf(stdout, "rs%d  = %d\n", op, (int)opData.rs); //RS
+				fprintf(stdout, "ssg%d = $%02x\n", op, (int)opData.ssg);//SSG-EG
+			}
 
 			// Detune = -3 to 3, bit 4 is primitive, inverted sign
 			uint8_t dt = 0;
@@ -900,7 +924,10 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 			fclose(file);
 		}
 
-		fprintf(stdout, "\teif\n; end of FM instrument\n");
+		if(VerboseLog)
+		{
+			fprintf(stdout, "\teif\n; end of FM instrument\n");
+		}
 	}
 	else
 	{
@@ -941,7 +968,10 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 			fclose(file);
 		}
 
-		fprintf(stdout, "\teif\n; end of PSG instrument\n");
+		if(VerboseLog)
+		{
+			fprintf(stdout, "\teif\n; end of PSG instrument\n");
+		}
 	}
 
     return;
@@ -1007,7 +1037,10 @@ void DMFConverter::OutputSample(int sampleIdx, const char* filename)
 			fclose(file);
 		}
 
-		fprintf(stdout, "\tewf\n; end of sample\n");
+		if(VerboseLog)
+		{
+			fprintf(stdout, "\tewf\n; end of sample\n");
+		}
 
 		delete destDataUint8;
 	}

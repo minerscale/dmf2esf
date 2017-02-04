@@ -666,6 +666,8 @@ private:
 public:
     std::ofstream ESFFile;
 
+	bool VerboseLog;
+
 	uint8_t     InstrumentOffset;
 
     uint32_t    WaitCounter; // just increase every time you want to wait...
@@ -696,6 +698,8 @@ class DMFConverter
 public:
 
     ESFOutput * esf;
+
+	bool VerboseLog;
 
 	DMFFile m_dmfFile;
 
