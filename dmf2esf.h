@@ -708,6 +708,9 @@ public:
 
     uint32_t *   PatternData;           // pattern data table
 
+	bool LockChannels;
+	bool LoopWholeTrack;
+
     bool        UseTables;
     uint8_t     InstrumentTable[256];   // instrument conversion table
 	uint8_t     TotalInstruments;

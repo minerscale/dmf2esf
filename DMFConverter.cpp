@@ -1,6 +1,8 @@
 #include "dmf2esf.h"
 #include "libsamplerate\src\samplerate.h"
 
+#include <set>
+
 template <typename T> T Clamp(T value, T min, T max)
 {
 	T clamped = value;
@@ -269,15 +271,45 @@ bool DMFConverter::Initialize(const char* Filename)
 /** @brief Parses module and writes into ESF. **/
 bool DMFConverter::Parse()
 {
-    uint8_t CurrChannel;
-
 	if(VerboseLog)
 	{
 		fprintf(stdout, "Now parsing pattern data...\n");
 	}
 
+	//Determine used channels
+	std::set<uint8_t> usedChannels;
+
+	for(CurrPattern = 0; CurrPattern < TotalPatterns; CurrPattern++)
+	{
+		for(CurrRow = 0; CurrRow < TotalRowsPerPattern; CurrRow++)
+		{
+			for(uint8_t CurrChannel = 0; CurrChannel < ChannelCount; CurrChannel++)
+			{
+				if(m_dmfFile.m_channels[CurrChannel].m_patternPages[CurrPattern].m_notes[CurrRow].m_note != 0)
+				{
+					usedChannels.insert(CurrChannel);
+					break;
+				}
+			}
+		}
+	}
+
+	if(LockChannels)
+	{
+		//Lock used channels
+		for(std::set<uint8_t>::iterator it = usedChannels.begin(), end = usedChannels.end(); it != end; ++it)
+		{
+			esf->LockChannel(Channels[*it].ESFId);
+		}
+	}
+
+	if(LoopWholeTrack)
+	{
+		esf->SetLoop();
+	}
+
     NextRow = 0;
-    for(CurrPattern=0;CurrPattern<TotalPatterns;CurrPattern++)
+	for(CurrPattern=0;CurrPattern<TotalPatterns;CurrPattern++)
     {
         #if MODDATA
             fprintf(stdout, "Pattern %x\n",(int)CurrPattern);
@@ -292,7 +324,7 @@ bool DMFConverter::Parse()
             esf->InsertPatRow(CurrPattern, CurrRow);
 
             /* Parse pattern data */
-            for(CurrChannel=0;CurrChannel<ChannelCount;CurrChannel++)
+			for(uint8_t CurrChannel = 0; CurrChannel<ChannelCount; CurrChannel++)
             {
 				if(this->ParseChannelRow(CurrChannel, CurrPattern, CurrRow))
                 {
@@ -321,7 +353,7 @@ bool DMFConverter::Parse()
                 #if MODDATA
                     fprintf(stdout, "Loop:    ");
                 #endif
-                for(CurrChannel=0;CurrChannel<ChannelCount;CurrChannel++)
+					for(uint8_t CurrChannel=0;CurrChannel<ChannelCount;CurrChannel++)
                 {
                     if(this->ParseChannelRow(CurrChannel, CurrPattern, CurrRow))
                         return 1;
@@ -345,7 +377,13 @@ bool DMFConverter::Parse()
             break;
     }
 
+	if(LoopWholeTrack)
+	{
+		esf->GotoLoop();
+	}
+
     esf->StopPlayback();
+
     return 0;
 }
 /** @brief Parses pattern data for a single channel **/

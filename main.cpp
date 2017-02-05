@@ -26,10 +26,22 @@ int main(int argc, char *argv[])
     fprintf(stdout, "Licensed under GPLv2, see LICENSE.txt.\n\n");
 	fprintf(stdout, "Includes source from Secret Rabbit Code, licensed under GPLv1, see libsamplerate\\COPYING.\n\n");
 
-	int instrumentIdxOffset = 0;
 	bool error = false;
-	std::vector<std::pair<std::string, std::string>> filenames;
+
+	struct File
+	{
+		std::string InFilename;
+		std::string OutFilename;
+		bool loopWholeTrack = false;
+		bool lockChannels = false;
+	};
+
+	std::vector<File> filenames;
+
 	const char* configFile = NULL;
+	int instrumentIdxOffset = 0;
+	
+	File currentFile;
 
     if(argc > 1)
     {
@@ -51,6 +63,14 @@ int main(int argc, char *argv[])
 			else if(!strcmp(argv[i], "-v"))
 			{
 				Verbose = true;
+			}
+			else if(!strcmp(argv[i], "-l"))
+			{
+				currentFile.loopWholeTrack = true;
+			}
+			else if(!strcmp(argv[i], "-s"))
+			{
+				currentFile.lockChannels = true;
 			}
 			else if(!strcmp(argv[i], "-c"))
 			{
@@ -84,7 +104,11 @@ int main(int argc, char *argv[])
 				if(i < argc)
 				{
 					std::string outFile = argv[i];
-					filenames.push_back(std::make_pair(inFile, outFile));
+					currentFile.InFilename = inFile;
+					currentFile.OutFilename = outFile;
+
+					filenames.push_back(currentFile);
+					currentFile = File();
 				}
 				else
 				{
@@ -102,6 +126,8 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "\t-c <config.ini> : Use INI config file\n");
         fprintf(stderr, "\t-i : Output FM instrument data\n");
         fprintf(stderr, "\t-a : Output ESF as an assembly file\n");
+		fprintf(stderr, "\t-l : Loop whole track\n");
+		fprintf(stderr, "\t-s : SFX (locks used channels)\n");
         fprintf(stderr, "\t-e : Use EchoEx extended commands\n");
 		fprintf(stderr, "\t-v : Verbose output\n");
 		fprintf(stderr, "\t-instroffset : Offset the first instrument index\n");
@@ -187,18 +213,21 @@ int main(int argc, char *argv[])
         {
 			for(int i = 0; i < filenames.size(); i++)
 			{
-				fprintf(stdout, "Converting: %s\n", filenames[i].first.c_str());
+				const File& file = filenames[i];
 
-				esf = new ESFOutput(filenames[i].second);
+				fprintf(stdout, "Converting: %s\n", file.InFilename.c_str());
+
+				esf = new ESFOutput(file.OutFilename);
 				dmf = new DMFConverter(&esf);
-
-				esf->VerboseLog = Verbose;
-				dmf->VerboseLog = Verbose;
 
 				esf->InstrumentOffset = instrumentIdxOffset;
 				dmf->InstrumentOffset = instrumentIdxOffset;
+				esf->VerboseLog = Verbose;
+				dmf->VerboseLog = Verbose;
+				dmf->LoopWholeTrack = file.loopWholeTrack;
+				dmf->LockChannels = file.lockChannels;
 
-				if(dmf->Initialize(filenames[i].first.c_str()))
+				if(dmf->Initialize(file.InFilename.c_str()))
 				{
 					fprintf(stderr, "Aborting\n");
 					return EXIT_FAILURE;
