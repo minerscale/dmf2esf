@@ -96,6 +96,42 @@ enum EffectMode
     EFFECT_SCHEDULE,// porta note
 };
 
+enum EffectStage
+{
+	EFFECT_STAGE_OFF,
+	EFFECT_STAGE_INITIALISE,
+	EFFECT_STAGE_CONTINUE
+};
+
+enum EffectType
+{
+	EFFECT_TYPE_NONE = 0xff, // No effect
+	EFFECT_TYPE_DAC_ON = 0x17, // DAC enable (already done)
+	EFFECT_TYPE_PSG_NOISE = 0x20, // PSG noise mode (already done)
+	EFFECT_TYPE_ARPEGGIO = 0x00, // Arpeggio
+	EFFECT_TYPE_PORTMENTO_UP = 0x01, // Portamento up
+	EFFECT_TYPE_PORTMENTO_DOWN = 0x02, // Portamento down
+	EFFECT_TYPE_PORTMENTO_TO_NOTE = 0x03, // Tone portamento
+	EFFECT_TYPE_VIBTRATO = 0x04, // Vibrato
+	EFFECT_TYPE_PORTMENTO_TO_NOTE_AND_VOL_SLIDE = 0x05, // Tone portamento + volume slide
+	EFFECT_TYPE_VIBRATO_AND_VOL_SLIDE = 0x06, // Vibrato + volume slide
+	EFFECT_TYPE_TREMOLO = 0x07, // Tremolo
+	EFFECT_TYPE_PAN = 0x08, // Set panning
+	EFFECT_TYPE_SET_SPEED_1 = 0x09, // Set speed 1
+	EFFECT_TYPE_SET_SPEED_2 = 0x0f, // Set speed 2
+	EFFECT_TYPE_VOLUME_SLIDE = 0x0a, // Volume slide
+	EFFECT_TYPE_NOTE_RETRIGGER = 0x0c, // Note retrig
+
+	//Extended effects
+	EFFECT_TYPE_NOTE_SLIDE_UP = 0xe1, // Note slide up
+	EFFECT_TYPE_NOTE_SLIDE_DOWN = 0xe2, // Note slide down
+	EFFECT_TYPE_SET_VIBRATO_MODE = 0xe3, // Vibrato mode
+	EFFECT_TYPE_SET_FINE_VIBRATO = 0xe4, // Fine vibrato depth
+	EFFECT_TYPE_NOTE_CUT = 0xec, // Note cut
+	EFFECT_TYPE_JUMP = 0x0b, // Position jump
+	EFFECT_TYPE_BREAK = 0x0d, // Pattern break
+};
+
 enum ESFChannel
 {
     ESF_FM1 = 0x00,
@@ -188,7 +224,10 @@ static uint16_t PSGFreqs[12][7] = // [semitone][octave]
     { 477,438,119, 59, 29, 14, 3 }, // a#
     { 450,225,112, 56, 28, 14, 2 }, // b
 };
-static uint16_t FMFreqs[12] =
+
+static const int MaxFMFreqs = 12;
+static const int MaxOctave = 7;
+static uint16_t FMFreqs[MaxFMFreqs] =
 {
     644,681,722,765,810,858,910,964,1021,1081,1146,1214
 };
@@ -210,10 +249,11 @@ struct EffectPortmento
 
 	//1xx, 2xx (portamento)
 	EffectMode  Porta;
+	EffectStage Stage;
 	uint8_t     PortaSpeed;
-	//uint8_t     CurrentNote;
-	//uint8_t     CurrentOctave;
-	uint32_t    CurrentNoteFrac;
+	uint8_t     Octave;
+	uint32_t    Semitone;
+	bool        NoteOnthisRow;
 };
 
 struct EffectPortaNote
@@ -338,6 +378,8 @@ struct Channel
     double      ToneFreq;
     uint8_t     NewNote;
     uint8_t     NewOctave;
+	uint8_t     LastNote;
+	uint8_t     LastOctave;
     int16_t     LastFreq; // difference
     int16_t     NewFreq;  // difference
     uint8_t     Instrument;
@@ -679,7 +721,7 @@ public:
     void    NoteOn(ESFChannel chan,uint8_t note,uint8_t octave = 0);
     void    NoteOff(ESFChannel chan);
     void    SetVolume(ESFChannel chan,uint8_t volume);
-    void    SetFrequency(ESFChannel chan,uint16_t freq);
+	void    SetFrequency(ESFChannel chan, uint16_t freq, bool processDelay = true);
     void    SetPSGNoise(uint8_t noise);
     void    SetInstrument(ESFChannel chan,uint8_t index);
     void    LockChannel(ESFChannel chan);
@@ -763,8 +805,10 @@ public:
     bool        Initialize(const char* Filename);     // load DMF
     bool        Parse();    // parse DMF
 	bool        ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t CurrRow); // parse channel
-    void        ParseChannelEffects(uint8_t chan);
+	EffectStage GetActiveEffectStage(uint8_t chan);
+    int         ProcessActiveEffects(uint8_t chan);
     void        NoteOn(uint8_t chan); // checks channel type and sends appropriate command to ESF
+	void        SetFrequency(uint8_t chan, uint32_t FMSemitone, bool processDelay = true);
 	void        OutputInstrument(int instrumentIdx, const char* filename); // outputs an FM instrument or PSG envelope
 	void        OutputSample(int sampleIdx, const char* filename);
 

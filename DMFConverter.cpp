@@ -276,6 +276,8 @@ bool DMFConverter::Parse()
 		fprintf(stdout, "Now parsing pattern data...\n");
 	}
 
+	esf->WaitCounter = 0;
+
 	//Determine used channels
 	std::set<uint8_t> usedChannels;
 
@@ -333,6 +335,7 @@ bool DMFConverter::Parse()
                 }
                 //fprintf(stdout, "%#x, ", ChannelData);
             }
+
             #if MODDATA
                 fprintf(stdout, "\n");
             #endif
@@ -346,6 +349,68 @@ bool DMFConverter::Parse()
 
 			//Increment delay counter, will be used and cleared on next command
             esf->WaitCounter += ticksPerRow;
+
+			//Process at least one active effect tick, and continue whilst idle (waitCounter > 0)
+			int numEffectsProcessed = 0;
+			do
+			{
+				numEffectsProcessed = 0;
+
+				//Check if any effects need processing
+				bool processEffects = false;
+				bool wholeDelay = false;
+				bool noteOn = false;
+				for(uint8_t CurrChannel = 0; CurrChannel < ChannelCount; CurrChannel++)
+				{
+					EffectStage stage = GetActiveEffectStage(CurrChannel);
+					if(stage != EFFECT_STAGE_OFF)
+					{
+						processEffects = true;
+
+						if(stage == EFFECT_STAGE_INITIALISE)
+						{
+							//First use of effect, delay treated as note on
+							wholeDelay = true;
+						}
+
+						if(Channels[CurrChannel].m_effectPortmento.NoteOnthisRow)
+						{
+							noteOn = true;
+						}
+					}
+				}
+
+				if(processEffects)
+				{
+					//If note on this row, don't process any delay
+					if(!noteOn)
+					{
+						if(wholeDelay)
+						{
+							//First tick for at least one of the effects, process whole delay
+							esf->Wait();
+						}
+						else
+						{
+							//Subsequent tick, delay by 1
+							uint32_t oldDelay = esf->WaitCounter;
+							esf->WaitCounter = 1;
+							esf->Wait();
+							esf->WaitCounter = oldDelay;
+						}
+					}
+
+					for(uint8_t CurrChannel = 0; CurrChannel < ChannelCount; CurrChannel++)
+					{
+						numEffectsProcessed += ProcessActiveEffects(CurrChannel);
+					}
+
+					if(numEffectsProcessed && esf->WaitCounter > 0)
+					{
+						esf->WaitCounter -= 1;
+					}
+				}
+			} while(esf->WaitCounter > 0 && numEffectsProcessed > 0);
 
             /* Are we at the loop end? If so, start playing the loop row */
             if(LoopFlag == true)
@@ -450,7 +515,7 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
     {
 		EffectType = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
 		EffectParam = m_dmfFile.m_channels[chan].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectValue;
-        if(EffectType == 0x17) // DAC enable
+		if(EffectType == EFFECT_TYPE_DAC_ON) // DAC enable
         {
             DACEnabled = 0;
 
@@ -459,7 +524,7 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 
             //fprintf(stderr, "effect %02x%02x: DAC enable %d\n",(int)EffectType,(int)EffectParam,(int)DACEnabled);
         }
-        else if(EffectType == 0x20) // Set noise mode
+		else if(EffectType == EFFECT_TYPE_PSG_NOISE) // Set noise mode
         {
             PSGNoiseFreq = 0;
             PSGPeriodicNoise = 0;
@@ -497,6 +562,10 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
     /* Note on? */
     else if(Channels[chan].Note != 0)
     {
+		//Save last note/octave for effects in subsequent rows
+		Channels[chan].LastNote = Channels[chan].Note;
+		Channels[chan].LastOctave = Channels[chan].Octave;
+
         /* Convert octave/note format to something that makes more sense */
         if(Channels[chan].Note == 12)
         {
@@ -530,7 +599,6 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
         /* If note delay or tone portamento is off, send the note on command already! */
 		if(Channels[chan].m_effectNoteDelay.NoteDelay == EFFECT_OFF || Channels[chan].m_effectPortaNote.PortaNote == EFFECT_OFF)
             this->NoteOn(chan);
-
     }
     /* Note column is empty */
     else {
@@ -543,79 +611,42 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
     fprintf(stdout, "%02x %02x, ",(int)Channels[chan].NewVolume,(int)Channels[chan].NewInstrument);
     #endif
 
-	//Process active effects
-	if(0)//channel.m_effectPortmento.Porta != EFFECT_OFF)
-	{
-		//if(channel.m_effectPortmento.Porta == EFFECT_UP)
-		//{
-		//	channel.m_effectPortmento.CurrentNote++;
-		//	if(channel.m_effectPortmento.CurrentNote == 12)
-		//	{
-		//		channel.m_effectPortmento.CurrentNote = 0;
-		//		channel.m_effectPortmento.CurrentOctave++;
-		//	}
-		//}
-		//else if(channel.m_effectPortmento.Porta == EFFECT_DOWN)
-		//{
-		//	channel.m_effectPortmento.CurrentNote--;
-		//	if(channel.m_effectPortmento.CurrentNote == (uint8_t)-1)
-		//	{
-		//		channel.m_effectPortmento.CurrentNote = 11;
-		//		channel.m_effectPortmento.CurrentOctave--;
-		//	}
-		//}
-
-		if(channel.m_effectPortmento.Porta == EFFECT_UP)
-		{
-			channel.m_effectPortmento.CurrentNoteFrac += (double)channel.m_effectPortmento.PortaSpeed;
-		}
-		else if(channel.m_effectPortmento.Porta == EFFECT_DOWN)
-		{
-			channel.m_effectPortmento.CurrentNoteFrac -= (double)channel.m_effectPortmento.PortaSpeed;
-		}
-
-		//Note on
-		channel.Note = (channel.m_effectPortmento.CurrentNoteFrac / 60) % 12;
-		channel.Octave = ((channel.m_effectPortmento.CurrentNoteFrac / 60) / 12) + 1;
-		NoteOn(chan);
-	}
-
-	if(Channels[chan].m_effectPortaNote.PortaNote != EFFECT_OFF)
+	if(0) //Channels[chan].m_effectPortaNote.PortaNote != EFFECT_OFF)
 	{
 		//TODO: handle octave change
-		//uint8_t currentNote = Channels[chan].m_effectPortaNote.PortaNoteCurrentNote;
-		//uint8_t currentOctave = Channels[chan].m_effectPortaNote.PortaNoteCurrentOctave;
-		//uint8_t targetNote = Channels[chan].m_effectPortaNote.PortaNoteTargetNote;
-		//uint8_t targetOctave = Channels[chan].m_effectPortaNote.PortaNoteTargetOctave;
-		//uint8_t speed = Channels[chan].m_effectPortaNote.PortaNoteSpeed;
-		//
-		////Lerp towards target at speed
-		//if((targetNote | targetOctave << 8) > (currentNote | currentOctave << 8))
-		//{
-		//	currentNote += speed;
-		//	if(currentNote > targetNote)
-		//		currentNote = targetNote;
-		//}
-		//else if((targetNote | targetOctave << 8) < (currentNote | currentOctave << 8))
-		//{
-		//	currentNote -= speed;
-		//	if(currentNote < targetNote)
-		//		currentNote = targetNote;
-		//}
-		//
-		////If target reached, effect finished
-		//if(currentNote == targetNote)
-		//{
-		//	Channels[chan].m_effectPortaNote.PortaNote == EFFECT_OFF;
-		//}
-		//
-		////Note on
-		//Channels[chan].Note = currentNote;
-		//NoteOn(chan);
-		//
-		////Update effect history data
-		//Channels[chan].m_effectPortaNote.PortaNoteCurrentNote = currentNote;
-		//Channels[chan].m_effectPortaNote.PortaNoteCurrentOctave = currentOctave;
+		uint8_t currentNote = Channels[chan].m_effectPortaNote.PortaNoteCurrentNote;
+		uint8_t currentOctave = Channels[chan].m_effectPortaNote.PortaNoteCurrentOctave;
+		uint8_t targetNote = Channels[chan].m_effectPortaNote.PortaNoteTargetNote;
+		uint8_t targetOctave = Channels[chan].m_effectPortaNote.PortaNoteTargetOctave;
+		uint8_t speed = Channels[chan].m_effectPortaNote.PortaNoteSpeed;
+		
+		//Lerp towards target at speed
+		if((targetNote | targetOctave << 8) > (currentNote | currentOctave << 8))
+		{
+			currentNote += speed;
+			if(currentNote > targetNote)
+				currentNote = targetNote;
+		}
+		else if((targetNote | targetOctave << 8) < (currentNote | currentOctave << 8))
+		{
+			currentNote -= speed;
+			if(currentNote < targetNote)
+				currentNote = targetNote;
+		}
+		
+		//If target reached, effect finished
+		if(currentNote == targetNote)
+		{
+			Channels[chan].m_effectPortaNote.PortaNote == EFFECT_OFF;
+		}
+		
+		//Note on
+		Channels[chan].Note = currentNote;
+		NoteOn(chan);
+		
+		//Update effect history data
+		Channels[chan].m_effectPortaNote.PortaNoteCurrentNote = currentNote;
+		Channels[chan].m_effectPortaNote.PortaNoteCurrentOctave = currentOctave;
 	}
 
 	if(channel.m_effectVolSlide.VolSlide != EFFECT_OFF)
@@ -655,13 +686,8 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
         //fprintf(stdout, "%02x %02x, ",(int)EffectType,(int)EffectParam);
         switch(EffectType)
         {
-            /* The do-nothing effects */
-        case 0xff: // No effect
-        case 0x17: // DAC enable (already done)
-        case 0x20: // PSG noise mode (already done)
-            break;
             /* Normal effects */
-        case 0x00: // Arpeggio
+		case EFFECT_TYPE_ARPEGGIO: // Arpeggio
             if(EffectParam != 0)
             {
                 Channels[chan].m_effectArpeggio.Arp = EFFECT_NORMAL;
@@ -709,23 +735,30 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 				Channels[chan].m_effectArpeggio.Arp = EFFECT_OFF;
             }
             break;
-        case 0x01: // Portamento up
-			channel.m_effectPortmento.Porta = EFFECT_UP;
-			channel.m_effectPortmento.PortaSpeed = EffectParam;
-			//channel.m_effectPortmento.CurrentNote = channel.Note;
-			//channel.m_effectPortmento.CurrentOctave = channel.Octave;
-			//channel.m_effectPortmento.CurrentFreqOffset = 0;
-			channel.m_effectPortmento.CurrentNoteFrac = ((channel.Octave * 12) + channel.Note) * 60;
+		case EFFECT_TYPE_PORTMENTO_UP: // Portamento up
+		case EFFECT_TYPE_PORTMENTO_DOWN: // Portamento down
+			if(EffectParam == 0)
+			{
+				channel.m_effectPortmento.Porta = EFFECT_OFF;
+				channel.m_effectPortmento.Stage = EFFECT_STAGE_OFF;
+			}
+			else
+			{
+				channel.m_effectPortmento.NoteOnthisRow = (channel.Note != 0 || channel.Octave != 0);
+
+				//If note on this row or effect was off, start from last note/octave
+				if(channel.m_effectPortmento.NoteOnthisRow || channel.m_effectPortmento.Porta == EFFECT_OFF)
+				{
+					channel.m_effectPortmento.Semitone = FMFreqs[channel.LastNote];
+					channel.m_effectPortmento.Octave = channel.LastOctave;
+					channel.m_effectPortmento.Stage = EFFECT_STAGE_INITIALISE;
+				}
+
+				channel.m_effectPortmento.Porta = EffectType == 0x01 ? EFFECT_UP : EFFECT_DOWN;
+				channel.m_effectPortmento.PortaSpeed = EffectParam;
+			}
             break;
-        case 0x02: // Portamento down
-			channel.m_effectPortmento.Porta = EFFECT_DOWN;
-			channel.m_effectPortmento.PortaSpeed = EffectParam;
-			//channel.m_effectPortmento.CurrentNote = channel.Note;
-			//channel.m_effectPortmento.CurrentOctave = channel.Octave;
-			//channel.m_effectPortmento.CurrentFreqOffset = 0;
-			channel.m_effectPortmento.CurrentNoteFrac = ((channel.Octave * 12) + channel.Note) * 60;
-            break;
-        case 0x03: // Tone portamento
+		case EFFECT_TYPE_PORTMENTO_TO_NOTE: // Tone portamento
 			//channel.m_effectPortaNote.PortaNote = EFFECT_UP;
 			//channel.m_effectPortaNote.PortaNoteSpeed = EffectParam;
 			//channel.m_effectPortaNote.PortaNoteCurrentNote = Channels[chan].Note;
@@ -733,25 +766,17 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 			//channel.m_effectPortaNote.PortaNoteTargetNote = nextNote;
 			//channel.m_effectPortaNote.PortaNoteTargetOctave = nextOctave;
             break;
-        case 0x04: // Vibrato
-            break;
-        case 0x05: // Tone portamento + volume slide
-            break;
-        case 0x06: // Vibrato + volume slide
-            break;
-        case 0x07: // Tremolo
-            break;
-        case 0x08: // Set panning
+		case EFFECT_TYPE_PAN: // Set panning
             if(Channels[chan].Type == CHANNEL_TYPE_FM || Channels[chan].Type == CHANNEL_TYPE_FM6)
                 esf->SetParams(Channels[chan].ESFId,(EffectParam & 0x10)<<3 | (EffectParam & 0x01)<<6);
             break;
-        case 0x09: // Set speed 1
+		case EFFECT_TYPE_SET_SPEED_1: // Set speed 1
             TickTimeEvenRow = EffectParam;
             break;
-        case 0x0f: // Set speed 2
+		case EFFECT_TYPE_SET_SPEED_2: // Set speed 2
             TickTimeOddRow = EffectParam;
             break;
-		case 0x0a: // Volume slide
+		case EFFECT_TYPE_VOLUME_SLIDE: // Volume slide
 		{
 			int upSlide = (EffectParam & 0xF0) >> 4;
 			int downSlide = -(EffectParam & 0x0F);
@@ -760,25 +785,11 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 			channel.m_effectVolSlide.CurrVol = channel.LastVolume;
 			break;
 		}
-			
-        case 0x0c: // Note retrig
-            break;
-        case 0xe1: // Note slide up
-            break;
-        case 0xe2: // Note slide down
-            break;
-        case 0xe3: // Vibrato mode
-            break;
-        case 0xe4: // Fine vibrato depth
-            break;
-        case 0xec: // Note cut
-            break;
-            /* Global Effects */
-        case 0x0b: // Position jump
+		case EFFECT_TYPE_JUMP: // Position jump
             if(LoopFound == true && EffectParam < CurrPattern && LoopFlag == false)
                 LoopFlag = true;
             break;
-        case 0x0d: // Pattern break
+		case EFFECT_TYPE_BREAK: // Pattern break
             SkipPattern = true;
             if(CurrPattern != TotalPatterns)
                 NextPattern = CurrPattern+1;
@@ -793,6 +804,78 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
     }
 
     return 0;
+}
+
+EffectStage DMFConverter::GetActiveEffectStage(uint8_t chan)
+{
+	//TODO: Other effects
+	return Channels[chan].m_effectPortmento.Porta == EFFECT_OFF ? EFFECT_STAGE_OFF : Channels[chan].m_effectPortmento.Stage;
+}
+
+int DMFConverter::ProcessActiveEffects(uint8_t chan)
+{
+	Channel& channel = Channels[chan];
+
+	int numEffectsProcess = 0;
+
+	//Process active effects
+	if(channel.m_effectPortmento.Porta != EFFECT_OFF)
+	{
+		if(channel.m_effectPortmento.NoteOnthisRow)
+		{
+			//Had note on this row, skip
+			channel.m_effectPortmento.NoteOnthisRow = false;
+		}
+		else
+		{
+			//Increment/decrement frequency
+			if(channel.m_effectPortmento.Porta == EFFECT_UP)
+			{
+				channel.m_effectPortmento.Semitone += channel.m_effectPortmento.PortaSpeed;
+
+				//Clamp to max octave+freq
+				if(channel.m_effectPortmento.Octave == MaxOctave && channel.m_effectPortmento.Semitone > FMFreqs[MaxFMFreqs - 1])
+				{
+					channel.m_effectPortmento.Semitone = FMFreqs[MaxFMFreqs - 1];
+					channel.m_effectPortmento.Porta = EFFECT_OFF;
+				}
+			}
+			else if(channel.m_effectPortmento.Porta == EFFECT_DOWN)
+			{
+				channel.m_effectPortmento.Semitone -= channel.m_effectPortmento.PortaSpeed;
+
+				//Clamp to min octave+freq
+				if(channel.m_effectPortmento.Octave == 0 && channel.m_effectPortmento.Semitone < FMFreqs[0])
+				{
+					channel.m_effectPortmento.Semitone = FMFreqs[0];
+					channel.m_effectPortmento.Porta = EFFECT_OFF;
+				}
+			}
+
+			//Wrap around octave
+			if(channel.m_effectPortmento.Semitone < FMFreqs[0])
+			{
+				channel.m_effectPortmento.Semitone = FMFreqs[MaxFMFreqs - 1];
+				channel.m_effectPortmento.Octave--;
+			}
+
+			if(channel.m_effectPortmento.Semitone > FMFreqs[MaxFMFreqs - 1])
+			{
+				channel.m_effectPortmento.Semitone = FMFreqs[0];
+				channel.m_effectPortmento.Octave++;
+			}
+
+			//Set frequency
+			channel.Octave = channel.m_effectPortmento.Octave;
+			SetFrequency(chan, channel.m_effectPortmento.Semitone, false);
+		}
+
+		//Continue until next note off
+		numEffectsProcess++;
+		channel.m_effectPortmento.Stage = EFFECT_STAGE_CONTINUE;
+	}
+
+	return numEffectsProcess;
 }
 
 void DMFConverter::NoteOn(uint8_t chan)
@@ -892,6 +975,76 @@ void DMFConverter::NoteOn(uint8_t chan)
         {
             esf->NoteOn(Channels[chan].ESFId,Channels[chan].Note,Channels[chan].Octave);
         }
+    }
+    return;
+}
+
+void DMFConverter::SetFrequency(uint8_t chan, uint32_t FMSemitone, bool processDelay)
+{
+    /* Is this the PSG noise channel? */
+    if (Channels[chan].Type == CHANNEL_TYPE_PSG4)
+    {
+        uint8_t NoiseMode = 0;
+
+        /* Is periodic noise active? */
+        if(PSGPeriodicNoise)
+            NoiseMode = 4;
+
+        /* Are we using the PSG3 frequency? */
+        if(PSGNoiseFreq)
+        {
+            // if C-8 change it to B-7
+            if(Channels[chan].Note == 0 && Channels[chan].Octave == 8)
+            {
+                Channels[chan].Octave--;
+                Channels[chan].Note = 11;
+            }
+            Channels[chan].Octave--;
+
+            /* Get the frequency value */
+            Channels[chan-1].ToneFreq = PSGFreqs[Channels[chan].Note][Channels[chan].Octave];
+
+            /* Only update frequency if it's not the same as the last */
+            if(Channels[chan-1].LastFreq != Channels[chan-1].ToneFreq)
+                esf->SetFrequency(Channels[chan-1].ESFId,Channels[chan-1].ToneFreq, processDelay);
+
+            Channels[chan-1].LastFreq = Channels[chan-1].ToneFreq;
+
+            NoiseMode = NoiseMode + 3;
+
+        }
+    }
+
+    /* Skip if this is the PSG3 channel and its frequency value is already used for the noise channel */
+	else if(!(Channels[chan].Id == CHANNEL_PSG3 && PSGNoiseFreq))
+    {
+        /* Calculate frequency */
+        Channels[chan].ToneFreq = 0;    // Reset if this is for a channel where this doesn't make much sense.
+
+        /* Is this an FM channel? */
+        if(Channels[chan].Type == CHANNEL_TYPE_FM || (Channels[chan].Type == CHANNEL_TYPE_FM6 && DACEnabled == false))
+        {
+			Channels[chan].ToneFreq = (Channels[chan].Octave << 11) | FMSemitone; // FMFreqs[Channels[chan].Note];
+        }
+        /* PSG */
+        else if(Channels[chan].Type == CHANNEL_TYPE_PSG)
+        {
+            Channels[chan].Octave--;
+            Channels[chan].ToneFreq = PSGFreqs[Channels[chan].Note][Channels[chan].Octave];
+        }
+
+		if(!(Channels[chan].Type == CHANNEL_TYPE_FM6 && DACEnabled == true))
+		{
+			if(Channels[chan].LastFreq != Channels[chan].ToneFreq)
+			{
+				esf->SetFrequency(Channels[chan].ESFId, Channels[chan].ToneFreq, processDelay);
+			}
+		}
+
+        /* Reset last tone / new tone freqs */
+        Channels[chan].NoteFreq = Channels[chan].ToneFreq;
+        Channels[chan].LastFreq = 0;
+        Channels[chan].NewFreq = 0;
     }
     return;
 }

@@ -162,9 +162,13 @@ ESF_SetFreq macro
     else
         byte frequency
 */
-void ESFOutput::SetFrequency(ESFChannel chan, uint16_t freq)
+void ESFOutput::SetFrequency(ESFChannel chan, uint16_t freq, bool processDelay)
 {
-    this->Wait();
+	if(processDelay)
+	{
+		this->Wait();
+	}
+    
     uint8_t esfcmd = 0x30+(int)chan;
     uint8_t esffreq1 = 0;
     uint8_t esffreq2 = 0;
@@ -197,7 +201,7 @@ void ESFOutput::SetFrequency(ESFChannel chan, uint16_t freq)
         hexy(ESFFile,esffreq1,", $");
         if(!onebyte)
             hexy(ESFFile,esffreq2,", $");
-        ESFFile<<"\t; Set frequency '"<<std::dec<<(int)freq<<"' for channel "<<ESFChanNames[(int)chan].c_str()<<"\n";
+		ESFFile << "\t; Set frequency '" << std::dec << (int)freq << "' (octave " << (int)(freq >> 11) << " semitone " << (int)(freq & 0x7FF) << ") for channel " << ESFChanNames[(int)chan].c_str() << "\n";
         return;
     }
     ESFFile<<esfcmd<<esffreq1;
