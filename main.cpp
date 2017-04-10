@@ -15,6 +15,7 @@ int main(int argc, char *argv[])
     OutputInstruments = false;
     ExCommands = false;
 	bool Verbose = false;
+	bool OutputChannelMask = false;
 
     DMFConverter * dmf;
     ESFOutput * esf;
@@ -34,6 +35,8 @@ int main(int argc, char *argv[])
 		std::string OutFilename;
 		bool loopWholeTrack = false;
 		bool lockChannels = false;
+		bool PALMode = false;
+		uint16_t ChannelMask = 0;
 	};
 
 	std::vector<File> filenames;
@@ -60,6 +63,10 @@ int main(int argc, char *argv[])
 			{
 				ExCommands = true;
 			}
+			else if(!strcmp(argv[i], "-m"))
+			{
+				OutputChannelMask = true;
+			}
 			else if(!strcmp(argv[i], "-v"))
 			{
 				Verbose = true;
@@ -71,6 +78,10 @@ int main(int argc, char *argv[])
 			else if(!strcmp(argv[i], "-s"))
 			{
 				currentFile.lockChannels = true;
+			}
+			else if(!strcmp(argv[i], "-p"))
+			{
+				currentFile.PALMode = true;
 			}
 			else if(!strcmp(argv[i], "-c"))
 			{
@@ -128,7 +139,9 @@ int main(int argc, char *argv[])
         fprintf(stderr, "\t-a : Output ESF as an assembly file\n");
 		fprintf(stderr, "\t-l : Loop whole track\n");
 		fprintf(stderr, "\t-s : SFX (locks used channels)\n");
+		fprintf(stderr, "\t-p : PAL mode (sets FM timer to PAL speed)\n");
         fprintf(stderr, "\t-e : Use EchoEx extended commands\n");
+		fprintf(stderr, "\t-m : Output used channel mask\n");
 		fprintf(stderr, "\t-v : Verbose output\n");
 		fprintf(stderr, "\t-instroffset : Offset the first instrument index\n");
         fprintf(stderr, "Please read \"readme.md\" for further usage instructions.\n");
@@ -213,7 +226,7 @@ int main(int argc, char *argv[])
         {
 			for(int i = 0; i < filenames.size(); i++)
 			{
-				const File& file = filenames[i];
+				File& file = filenames[i];
 
 				fprintf(stdout, "Converting: %s\n", file.InFilename.c_str());
 
@@ -224,6 +237,7 @@ int main(int argc, char *argv[])
 				dmf->InstrumentOffset = instrumentIdxOffset;
 				esf->VerboseLog = Verbose;
 				dmf->VerboseLog = Verbose;
+				dmf->PALMode = file.PALMode;
 				dmf->LoopWholeTrack = file.loopWholeTrack;
 				dmf->LockChannels = file.lockChannels;
 
@@ -240,8 +254,23 @@ int main(int argc, char *argv[])
 
 				instrumentIdxOffset += dmf->TotalInstruments;
 
+				for(std::set<uint8_t>::iterator it = dmf->UsedChannels.begin(), end = dmf->UsedChannels.end(); it != end; ++it)
+				{
+					file.ChannelMask |= 1 << *it;
+				}
+
 				delete dmf;
 				delete esf;
+			}
+
+			if(OutputChannelMask)
+			{
+				for(int i = 0; i < filenames.size(); i++)
+				{
+					std::cout << "Mask for " << filenames[i].OutFilename << ":" << std::endl;
+					hexy(std::cout, filenames[i].ChannelMask, "0x");
+					std::cout << std::endl;
+				}
 			}
         }
     }

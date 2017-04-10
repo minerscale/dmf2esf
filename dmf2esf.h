@@ -28,6 +28,7 @@ Echo ESF documentation
     #include <math.h>
     #include <algorithm>
     #include <cstring>
+	#include <set>
 
     #define MINIZ_HEADER_FILE_ONLY
     #include "miniz.c"
@@ -132,6 +133,11 @@ enum EffectType
 	EFFECT_TYPE_BREAK = 0x0d, // Pattern break
 };
 
+enum FMRegister
+{
+	FMREG_26_TIMER_B = 0x26
+};
+
 enum ESFChannel
 {
     ESF_FM1 = 0x00,
@@ -231,6 +237,9 @@ static uint16_t FMFreqs[MaxFMFreqs] =
 {
     644,681,722,765,810,858,910,964,1021,1081,1146,1214
 };
+
+static const int FM_TimerB_NTSC = 0xC9;
+static const int FM_TimerB_PAL = 0xBD;
 
 struct EffectArpeggio
 {
@@ -726,6 +735,8 @@ public:
     void    SetInstrument(ESFChannel chan,uint8_t index);
     void    LockChannel(ESFChannel chan);
     void    SetParams(ESFChannel chan,uint8_t params);
+	void    SetRegisterBank0(uint8_t reg, uint8_t value);
+	void    SetRegisterBank1(uint8_t reg, uint8_t value);
     void    GotoLoop();
     void    SetLoop();
     void    StopPlayback();
@@ -752,6 +763,9 @@ public:
 
 	bool LockChannels;
 	bool LoopWholeTrack;
+	bool PALMode;
+
+	std::set<uint8_t> UsedChannels;
 
     bool        UseTables;
     uint8_t     InstrumentTable[256];   // instrument conversion table

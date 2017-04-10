@@ -263,6 +263,42 @@ void ESFOutput::SetParams(ESFChannel chan, uint8_t params)
     return;
 }
 
+void ESFOutput::SetRegisterBank0(uint8_t reg, uint8_t value)
+{
+	uint16_t esfcmd = 0xF8;
+
+	if(ASMOut)
+	{
+		ESFFile << "\tdc.b ";
+		hexy(ESFFile, esfcmd, "$");
+		hexy(ESFFile, reg, ", $");
+		hexy(ESFFile, value, ", $");
+		ESFFile << "\t; Set FM register " << (int)reg << " to value " << (int)value << "\n";
+	}
+	else
+	{
+		ESFFile << esfcmd;
+	}
+}
+
+void ESFOutput::SetRegisterBank1(uint8_t reg, uint8_t value)
+{
+	uint16_t esfcmd = 0xF9;
+
+	if(ASMOut)
+	{
+		ESFFile << "\tdc.b ";
+		hexy(ESFFile, esfcmd, "$");
+		hexy(ESFFile, reg, ", $");
+		hexy(ESFFile, value, ", $");
+		ESFFile << "\t; Set FM register " << (int)reg << " to value " << (int)value << "\n";
+	}
+	else
+	{
+		ESFFile << esfcmd;
+	}
+}
+
 void ESFOutput::GotoLoop()
 {
     this->Wait();

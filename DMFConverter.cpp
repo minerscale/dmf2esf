@@ -279,27 +279,33 @@ bool DMFConverter::Parse()
 	esf->WaitCounter = 0;
 
 	//Determine used channels
-	std::set<uint8_t> usedChannels;
-
-	for(CurrPattern = 0; CurrPattern < TotalPatterns; CurrPattern++)
+	for(uint8_t CurrChannel = 0; CurrChannel < ChannelCount; CurrChannel++)
 	{
-		for(CurrRow = 0; CurrRow < TotalRowsPerPattern; CurrRow++)
+		bool Used = false;
+
+		for(CurrPattern = 0; CurrPattern < TotalPatterns && !Used; CurrPattern++)
 		{
-			for(uint8_t CurrChannel = 0; CurrChannel < ChannelCount; CurrChannel++)
+			for(CurrRow = 0; CurrRow < TotalRowsPerPattern && !Used; CurrRow++)
 			{
 				if(m_dmfFile.m_channels[CurrChannel].m_patternPages[CurrPattern].m_notes[CurrRow].m_note != 0)
 				{
-					usedChannels.insert(CurrChannel);
-					break;
+					UsedChannels.insert(CurrChannel);
+					Used = true;
 				}
 			}
 		}
 	}
 
+	if(PALMode)
+	{
+		//Set FM timer to play back PAL speed tracks
+		esf->SetRegisterBank0(FMREG_26_TIMER_B, FM_TimerB_PAL);
+	}
+
 	if(LockChannels)
 	{
 		//Lock used channels
-		for(std::set<uint8_t>::iterator it = usedChannels.begin(), end = usedChannels.end(); it != end; ++it)
+		for(std::set<uint8_t>::iterator it = UsedChannels.begin(), end = UsedChannels.end(); it != end; ++it)
 		{
 			esf->LockChannel(Channels[*it].ESFId);
 		}
