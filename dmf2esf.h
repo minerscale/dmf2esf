@@ -88,6 +88,11 @@ enum PSGNoiseMode
     PSG_PERIODIC_NOISE_PSG3 = 7,
 };
 
+enum SpecialNotes
+{
+	NOTE_OFF = 100
+};
+
 enum EffectMode
 {
     EFFECT_OFF,     // all effects

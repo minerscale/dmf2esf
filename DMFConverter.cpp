@@ -287,7 +287,8 @@ bool DMFConverter::Parse()
 		{
 			for(CurrRow = 0; CurrRow < TotalRowsPerPattern && !Used; CurrRow++)
 			{
-				if(m_dmfFile.m_channels[CurrChannel].m_patternPages[CurrPattern].m_notes[CurrRow].m_note != 0)
+				uint16_t note = m_dmfFile.m_channels[CurrChannel].m_patternPages[CurrPattern].m_notes[CurrRow].m_note;
+				if(note != 0 && note != NOTE_OFF)
 				{
 					UsedChannels.insert(CurrChannel);
 					Used = true;
@@ -549,7 +550,7 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
     }
 
     /* Is this a note off? */
-    if(Channels[chan].Note == 100)
+	if(Channels[chan].Note == NOTE_OFF)
     {
         #if MODDATA
             fprintf(stdout, "OFF ");
