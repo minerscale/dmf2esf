@@ -267,7 +267,7 @@ struct EffectPortmento
 	uint8_t     PortaSpeed;
 	uint8_t     Octave;
 	uint32_t    Semitone;
-	bool        NoteOnthisRow;
+	bool        NoteOnthisTick;
 };
 
 struct EffectPortaNote

@@ -380,7 +380,7 @@ bool DMFConverter::Parse()
 							wholeDelay = true;
 						}
 
-						if(Channels[CurrChannel].m_effectPortmento.NoteOnthisRow)
+						if(Channels[CurrChannel].m_effectPortmento.NoteOnthisTick)
 						{
 							noteOn = true;
 						}
@@ -584,9 +584,9 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
             fprintf(stdout, "%s%x ",NoteNames[Channels[chan].Note].c_str(),(int)Channels[chan].Octave);
         #endif
 
-        //Turn off effects which stop at next note
+		//Turn off effects which stop at next note
 		channel.m_effectPortaNote.PortaNote = EFFECT_OFF;
-		channel.m_effectPortmento.Porta == EFFECT_OFF;
+		channel.m_effectPortmento.Porta = EFFECT_OFF;
 		channel.m_effectVolSlide.VolSlide = EFFECT_OFF;
 
         /* Parse some effects that will affect the note on */
@@ -751,10 +751,10 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 			}
 			else
 			{
-				channel.m_effectPortmento.NoteOnthisRow = (channel.Note != 0 || channel.Octave != 0);
+				channel.m_effectPortmento.NoteOnthisTick = (channel.Note != 0 || channel.Octave != 0);
 
-				//If note on this row or effect was off, start from last note/octave
-				if(channel.m_effectPortmento.NoteOnthisRow || channel.m_effectPortmento.Porta == EFFECT_OFF)
+				//If note on this tick or effect was off, start from last note/octave
+				if(channel.m_effectPortmento.NoteOnthisTick || channel.m_effectPortmento.Porta == EFFECT_OFF)
 				{
 					channel.m_effectPortmento.Semitone = FMFreqs[channel.LastNote];
 					channel.m_effectPortmento.Octave = channel.LastOctave;
@@ -828,10 +828,10 @@ int DMFConverter::ProcessActiveEffects(uint8_t chan)
 	//Process active effects
 	if(channel.m_effectPortmento.Porta != EFFECT_OFF)
 	{
-		if(channel.m_effectPortmento.NoteOnthisRow)
+		if(channel.m_effectPortmento.NoteOnthisTick)
 		{
 			//Had note on this row, skip
-			channel.m_effectPortmento.NoteOnthisRow = false;
+			channel.m_effectPortmento.NoteOnthisTick = false;
 		}
 		else
 		{
