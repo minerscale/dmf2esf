@@ -744,25 +744,29 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
             break;
 		case EFFECT_TYPE_PORTMENTO_UP: // Portamento up
 		case EFFECT_TYPE_PORTMENTO_DOWN: // Portamento down
-			if(EffectParam == 0)
+			//TODO: Fix for PSG
+			if(chan < CHANNEL_PSG1)
 			{
-				channel.m_effectPortmento.Porta = EFFECT_OFF;
-				channel.m_effectPortmento.Stage = EFFECT_STAGE_OFF;
-			}
-			else
-			{
-				channel.m_effectPortmento.NoteOnthisTick = (channel.Note != 0 || channel.Octave != 0);
-
-				//If note on this tick or effect was off, start from last note/octave
-				if(channel.m_effectPortmento.NoteOnthisTick || channel.m_effectPortmento.Porta == EFFECT_OFF)
+				if(EffectParam == 0)
 				{
-					channel.m_effectPortmento.Semitone = FMFreqs[channel.LastNote];
-					channel.m_effectPortmento.Octave = channel.LastOctave;
-					channel.m_effectPortmento.Stage = EFFECT_STAGE_INITIALISE;
+					channel.m_effectPortmento.Porta = EFFECT_OFF;
+					channel.m_effectPortmento.Stage = EFFECT_STAGE_OFF;
 				}
+				else
+				{
+					channel.m_effectPortmento.NoteOnthisTick = (channel.Note != 0 || channel.Octave != 0);
 
-				channel.m_effectPortmento.Porta = EffectType == 0x01 ? EFFECT_UP : EFFECT_DOWN;
-				channel.m_effectPortmento.PortaSpeed = EffectParam;
+					//If note on this tick or effect was off, start from last note/octave
+					if(channel.m_effectPortmento.NoteOnthisTick || channel.m_effectPortmento.Porta == EFFECT_OFF)
+					{
+						channel.m_effectPortmento.Semitone = FMFreqs[channel.LastNote];
+						channel.m_effectPortmento.Octave = channel.LastOctave;
+						channel.m_effectPortmento.Stage = EFFECT_STAGE_INITIALISE;
+					}
+
+					channel.m_effectPortmento.Porta = EffectType == 0x01 ? EFFECT_UP : EFFECT_DOWN;
+					channel.m_effectPortmento.PortaSpeed = EffectParam;
+				}
 			}
             break;
 		case EFFECT_TYPE_PORTMENTO_TO_NOTE: // Tone portamento
@@ -1131,9 +1135,10 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 	{
 		DMFFile::Instrument::ParamDataPSG& paramDataIn = m_dmfFile.m_instruments[instrumentIdx].m_paramsPSG;
 
-		//Create envelope data
-		const int loopDataSize = (paramDataIn.envelopeVolume.loopPosition == 255) ? 0 : 1;
+		//Create envelope data (no loop = end stream with mute loop (FE 0F EE))
+		const int loopDataSize = (paramDataIn.envelopeVolume.loopPosition == 255) ? 3 : 1;
 		const int dataSize = paramDataIn.envelopeVolume.envelopeSize + loopDataSize + 1;
+		const int streamEnd = dataSize - loopDataSize - 1;
 
 		uint8_t* data = new uint8_t[dataSize];
 
@@ -1141,23 +1146,30 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 		int volumeIdx = 0;
 		while(offset < dataSize)
 		{
-			if(offset == (dataSize - 1))
+			if(offset == streamEnd)
 			{
 				//End of data
-				data[offset] = 0xFF;
+				if(loopDataSize == 1)
+				{
+					data[offset++] = 0xFF;
+				}
+				else
+				{
+					data[offset++] = 0xFE;
+					data[offset++] = 0x0F;
+					data[offset++] = 0xFF;
+				}
 			}
 			else if(offset == paramDataIn.envelopeVolume.loopPosition)
 			{
 				//Loop start
-				data[offset] = 0xFE;
+				data[offset++] = 0xFE;
 			}
 			else
 			{
-				data[offset] = 0xF - paramDataIn.envelopeVolume.envelopeData[volumeIdx];
+				data[offset++] = 0xF - paramDataIn.envelopeVolume.envelopeData[volumeIdx];
 				volumeIdx++;
 			}
-
-			offset++;
 		}
 
 		if(FILE* file = fopen(filename, "w"))
