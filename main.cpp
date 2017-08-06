@@ -228,7 +228,7 @@ int main(int argc, char *argv[])
 			{
 				File& file = filenames[i];
 
-				fprintf(stdout, "Converting: %s\n", file.InFilename.c_str());
+				fprintf(stdout, "Converting: %s from instrument offset %i\n", file.InFilename.c_str(), instrumentIdxOffset);
 
 				esf = new ESFOutput(file.OutFilename);
 				dmf = new DMFConverter(&esf);
@@ -252,7 +252,9 @@ int main(int argc, char *argv[])
 					return EXIT_FAILURE;
 				}
 
-				instrumentIdxOffset += dmf->TotalInstruments;
+				fprintf(stdout, "Done. Instruments: %i Samples: %i\n", dmf->TotalInstruments, dmf->TotalSamples);
+
+				instrumentIdxOffset += dmf->TotalInstruments + dmf->TotalSamples;
 
 				for(std::set<uint8_t>::iterator it = dmf->UsedChannels.begin(), end = dmf->UsedChannels.end(); it != end; ++it)
 				{
@@ -267,7 +269,7 @@ int main(int argc, char *argv[])
 			{
 				for(int i = 0; i < filenames.size(); i++)
 				{
-					std::cout << "Mask for " << filenames[i].OutFilename << ":" << std::endl;
+					std::cout << "Used channel mask for " << filenames[i].OutFilename << ":" << std::endl;
 					hexy(std::cout, filenames[i].ChannelMask, "0x");
 					std::cout << std::endl;
 				}

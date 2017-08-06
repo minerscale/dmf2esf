@@ -775,6 +775,7 @@ public:
     bool        UseTables;
     uint8_t     InstrumentTable[256];   // instrument conversion table
 	uint8_t     TotalInstruments;
+	uint8_t     TotalSamples;
     uint8_t     SampleTable[12];
 
 	uint8_t     InstrumentOffset;
@@ -829,7 +830,7 @@ public:
     void        NoteOn(uint8_t chan); // checks channel type and sends appropriate command to ESF
 	void        SetFrequency(uint8_t chan, uint32_t FMSemitone, bool processDelay = true);
 	void        OutputInstrument(int instrumentIdx, const char* filename); // outputs an FM instrument or PSG envelope
-	void        OutputSample(int sampleIdx, const char* filename);
+	void        OutputSample(int sampleIdx, const char* filename, bool convertFormat);
 
     uint16_t    GetFreq(ChannelType chan);
 

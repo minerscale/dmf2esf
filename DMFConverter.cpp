@@ -201,6 +201,7 @@ bool DMFConverter::Initialize(const char* Filename)
 			TotalPatterns = m_dmfFile.m_numPatternPages;
 			ArpTickSpeed = m_dmfFile.m_arpeggioTickSpeed;
 			TotalInstruments = m_dmfFile.m_numInstruments;
+			TotalSamples = m_dmfFile.m_numSamples;
 
 			for(int i = 0; i < m_dmfFile.m_numInstruments; i++)
 			{
@@ -222,8 +223,8 @@ bool DMFConverter::Initialize(const char* Filename)
 			for(int i = 0; i < m_dmfFile.m_numSamples; i++)
 			{
 				char filename[FILENAME_MAX] = { 0 };
-				sprintf_s(filename, FILENAME_MAX, "sample_%02x_%s.ewf", i, m_dmfFile.m_samples[i].m_name.c_str());
-				OutputSample(i, filename);
+				sprintf_s(filename, FILENAME_MAX, "instr_%02x.ewf", i + TotalInstruments + InstrumentOffset);
+				OutputSample(i, filename, false);
 			}
 
             /* Finally build the pattern offset table */
@@ -976,7 +977,7 @@ void DMFConverter::NoteOn(uint8_t chan)
             else
 				sampleIdx = Channels[chan].Note;
 
-			//Offset sample index by max instruments (PCM data should be listed after instruments in Echo pointer list)
+			//Samples at end of instrument table
 			int pcmInstrIdx = TotalInstruments + InstrumentOffset + sampleIdx;
 
 			//PCM note on
@@ -1187,49 +1188,22 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
     return;
 }
 
-void DMFConverter::OutputSample(int sampleIdx, const char* filename)
+void DMFConverter::OutputSample(int sampleIdx, const char* filename, bool convertFormat)
 {
 	const DMFFile::Sample& sample = m_dmfFile.m_samples[sampleIdx];
 
-	float* sourceDataFloat = new float[sample.m_sampleSize];
-	float* destDataFloat = new float[sample.m_sampleSize * 2];
+	//If correct format, skip conversion
+	const int toleranceHz = 100;
 
-	if(sample.m_bitsPerSample == 8)
+	if(!convertFormat || (sample.m_bitsPerSample == 8 && abs(DMFFile::sSampleRates[sample.m_sampleRate] - DMFFile::sTargetSampleRate) <= toleranceHz))
 	{
-		//Source data to float
-		for(int i = 0; i < sample.m_sampleSize; i++)
-		{
-			sourceDataFloat[i] = (float)((uint8_t)sample.m_sampleData[i] & 0xFF) / 255.0f;
-		}
-	}
-	else if(sample.m_bitsPerSample == 16)
-	{
-		//Source data to float
-		for(int i = 0; i < sample.m_sampleSize; i++)
-		{
-			sourceDataFloat[i] = (float)sample.m_sampleData[i] / 32767.0f;
-		}
-	}
-
-	//Sample rate conversion using Secret Rabbit Code (http://www.mega-nerd.com/SRC)
-	SRC_DATA srcConfig;
-	srcConfig.data_in = sourceDataFloat;
-	srcConfig.data_out = destDataFloat;
-	srcConfig.input_frames = sample.m_sampleSize;
-	srcConfig.output_frames = sample.m_sampleSize * 2;
-	srcConfig.src_ratio = (double)DMFFile::sTargetSampleRate / (double)DMFFile::sSampleRates[sample.m_sampleRate];
-		
-	int srcResult = src_simple(&srcConfig, SRC_SINC_BEST_QUALITY, 1);
-	if(srcResult == 0)
-	{
-		//Convert back to u8
-		uint32_t outputSize = srcConfig.output_frames_gen + 1;
+		uint32_t outputSize = sample.m_sampleSize + 1;
 
 		uint8_t* destDataUint8 = new uint8_t[outputSize];
 
 		for(int i = 0; i < outputSize - 1; i++)
 		{
-			destDataUint8[i] = (uint8_t)((destDataFloat[i] + 1.0f) * 128.0f);
+			destDataUint8[i] = ((uint8_t)sample.m_sampleData[i] & 0xFF);
 
 			//Nudge 0xFF bytes to 0xFE
 			if(destDataUint8[i] == 0xFF)
@@ -1256,12 +1230,78 @@ void DMFConverter::OutputSample(int sampleIdx, const char* filename)
 	}
 	else
 	{
-		//SRC error
-		fprintf(stdout, "\tewf\n; sample rate conversion error\n");
-	}
+		float* sourceDataFloat = new float[sample.m_sampleSize];
+		float* destDataFloat = new float[sample.m_sampleSize * 2];
 
-	delete sourceDataFloat;
-	delete destDataFloat;
+		if(sample.m_bitsPerSample == 8)
+		{
+			//Source data to float
+			for(int i = 0; i < sample.m_sampleSize; i++)
+			{
+				sourceDataFloat[i] = (float)((uint8_t)sample.m_sampleData[i] & 0xFF) / 255.0f;
+			}
+		}
+		else if(sample.m_bitsPerSample == 16)
+		{
+			//Source data to float
+			for(int i = 0; i < sample.m_sampleSize; i++)
+			{
+				sourceDataFloat[i] = (float)sample.m_sampleData[i] / 32767.0f;
+			}
+		}
+
+		//Sample rate conversion using Secret Rabbit Code (http://www.mega-nerd.com/SRC)
+		SRC_DATA srcConfig;
+		srcConfig.data_in = sourceDataFloat;
+		srcConfig.data_out = destDataFloat;
+		srcConfig.input_frames = sample.m_sampleSize;
+		srcConfig.output_frames = sample.m_sampleSize * 2;
+		srcConfig.src_ratio = (double)DMFFile::sTargetSampleRate / (double)DMFFile::sSampleRates[sample.m_sampleRate];
+
+		int srcResult = src_simple(&srcConfig, SRC_SINC_BEST_QUALITY, 1);
+		if(srcResult == 0)
+		{
+			//Convert back to u8
+			uint32_t outputSize = srcConfig.output_frames_gen + 1;
+
+			uint8_t* destDataUint8 = new uint8_t[outputSize];
+
+			for(int i = 0; i < outputSize - 1; i++)
+			{
+				destDataUint8[i] = (uint8_t)((destDataFloat[i] + 1.0f) * 128.0f);
+
+				//Nudge 0xFF bytes to 0xFE
+				if(destDataUint8[i] == 0xFF)
+				{
+					destDataUint8[i] = 0xFE;
+				}
+			}
+
+			//End of data
+			destDataUint8[outputSize - 1] = 0xFF;
+
+			if(FILE* file = fopen(filename, "w"))
+			{
+				fwrite((char*)destDataUint8, outputSize, 1, file);
+				fclose(file);
+			}
+
+			if(VerboseLog)
+			{
+				fprintf(stdout, "\tewf\n; end of sample\n");
+			}
+
+			delete destDataUint8;
+		}
+		else
+		{
+			//SRC error
+			fprintf(stdout, "\tewf\n; sample rate conversion error\n");
+		}
+
+		delete sourceDataFloat;
+		delete destDataFloat;
+	}
 }
 
 void DMFFile::Serialise(Stream& stream)
