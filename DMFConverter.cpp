@@ -245,14 +245,14 @@ bool DMFConverter::Initialize(const char* Filename)
                         {
 							uint8_t EffectType = m_dmfFile.m_channels[i].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectType;
 							uint8_t EffectParam = m_dmfFile.m_channels[i].m_patternPages[CurrPattern].m_notes[CurrRow].m_effects[EffectCounter].m_effectValue;
-                            if(EffectType == 0x0b) // jump
+							if(EffectType == EFFECT_TYPE_JUMP) // jump
                             {
-                                if(EffectParam < CurrPattern && LoopFound == false)
+                                if(EffectParam <= CurrPattern && LoopFound == false)
                                 {
                                     LoopFound = true;
                                     LoopPattern = EffectParam;
                                     LoopRow = 0;
-                                    fprintf(stdout, "backwards jump to %x detected in pattern %x\n",(int)LoopPattern,(int)CurrPattern);
+									fprintf(stdout, "Loop from pattern %x to %x\n", (int)CurrPattern, (int)LoopPattern);
                                 }
                             }
                         }
@@ -798,7 +798,7 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 			break;
 		}
 		case EFFECT_TYPE_JUMP: // Position jump
-            if(LoopFound == true && EffectParam < CurrPattern && LoopFlag == false)
+            if(LoopFound == true && EffectParam <= CurrPattern && LoopFlag == false)
                 LoopFlag = true;
             break;
 		case EFFECT_TYPE_BREAK: // Pattern break
