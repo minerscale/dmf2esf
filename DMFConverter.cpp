@@ -333,6 +333,10 @@ bool DMFConverter::Parse()
             #endif
             esf->InsertPatRow(CurrPattern, CurrRow);
 
+			/* Set loop if we're at the loop start */
+			if(LoopFound == true && LoopPattern == CurrPattern && LoopRow == CurrRow)
+				esf->SetLoop();
+
             /* Parse pattern data */
 			for(uint8_t CurrChannel = 0; CurrChannel<ChannelCount; CurrChannel++)
             {
@@ -347,10 +351,6 @@ bool DMFConverter::Parse()
             #if MODDATA
                 fprintf(stdout, "\n");
             #endif
-
-            /* Set loop if we're at the loop start */
-            if(LoopFound == true && LoopPattern == CurrPattern && LoopRow == CurrRow)
-                esf->SetLoop();
 
             //Calculate number of ticks per row - Deflemask exports 1 tick time for even rows, and another for odd rows
 			uint8_t ticksPerRow = (CurrRow & 1) ? (TickTimeOddRow*(TickBase + 1)) : ( TickTimeEvenRow*(TickBase + 1));
