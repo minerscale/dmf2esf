@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
 
 	const char* configFile = NULL;
 	int instrumentIdxOffset = 0;
-	
+
 	File currentFile;
 
     if(argc > 1)
@@ -146,10 +146,10 @@ int main(int argc, char *argv[])
 		fprintf(stderr, "\t-instroffset : Offset the first instrument index\n");
         fprintf(stderr, "Please read \"readme.md\" for further usage instructions.\n");
 
-        for(int a=0;a<12*7;a++)
-        {
-            fprintf(stderr, "%d\n", fmfreq(a));
-        }
+        //for(int a=0;a<12*7;a++)
+        //{
+        //    fprintf(stderr, "%d\n", fmfreq(a));
+        //}
     }
     else
     {

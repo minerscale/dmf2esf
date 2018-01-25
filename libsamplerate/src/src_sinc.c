@@ -1,25 +1,9 @@
 /*
-** Copyright (C) 2002-2011 Erik de Castro Lopo <erikd@mega-nerd.com>
+** Copyright (c) 2002-2016, Erik de Castro Lopo <erikd@mega-nerd.com>
+** All rights reserved.
 **
-** This program is free software; you can redistribute it and/or modify
-** it under the terms of the GNU General Public License as published by
-** the Free Software Foundation; either version 2 of the License, or
-** (at your option) any later version.
-**
-** This program is distributed in the hope that it will be useful,
-** but WITHOUT ANY WARRANTY; without even the implied warranty of
-** MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-** GNU General Public License for more details.
-**
-** You should have received a copy of the GNU General Public License
-** along with this program; if not, write to the Free Software
-** Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA 02111-1307, USA.
-*/
-
-/*
-** This code is part of Secret Rabbit Code aka libsamplerate. A commercial
-** use license for this code is available, please see:
-**		http://www.mega-nerd.com/SRC/procedure.html
+** This code is released under 2-clause BSD license. Please see the
+** file at : https://github.com/erikd/libsamplerate/blob/master/COPYING
 */
 
 #include <stdio.h>
@@ -142,7 +126,7 @@ sinc_get_description (int src_enum)
 			return "Band limited sinc interpolation, medium quality, 121dB SNR, 90% BW." ;
 
 		case SRC_SINC_BEST_QUALITY :
-			return "Band limited sinc interpolation, best quality, 145dB SNR, 96% BW." ;
+			return "Band limited sinc interpolation, best quality, 144dB SNR, 96% BW." ;
 
 		default :
 			break ;
@@ -201,19 +185,19 @@ sinc_set_converter (SRC_PRIVATE *psrc, int src_enum)
 	switch (src_enum)
 	{	case SRC_SINC_FASTEST :
 				temp_filter.coeffs = fastest_coeffs.coeffs ;
-				temp_filter.coeff_half_len = ARRAY_LEN (fastest_coeffs.coeffs) - 1 ;
+				temp_filter.coeff_half_len = ARRAY_LEN (fastest_coeffs.coeffs) - 2 ;
 				temp_filter.index_inc = fastest_coeffs.increment ;
 				break ;
 
 		case SRC_SINC_MEDIUM_QUALITY :
 				temp_filter.coeffs = slow_mid_qual_coeffs.coeffs ;
-				temp_filter.coeff_half_len = ARRAY_LEN (slow_mid_qual_coeffs.coeffs) - 1 ;
+				temp_filter.coeff_half_len = ARRAY_LEN (slow_mid_qual_coeffs.coeffs) - 2 ;
 				temp_filter.index_inc = slow_mid_qual_coeffs.increment ;
 				break ;
 
 		case SRC_SINC_BEST_QUALITY :
 				temp_filter.coeffs = slow_high_qual_coeffs.coeffs ;
-				temp_filter.coeff_half_len = ARRAY_LEN (slow_high_qual_coeffs.coeffs) - 1 ;
+				temp_filter.coeff_half_len = ARRAY_LEN (slow_high_qual_coeffs.coeffs) - 2 ;
 				temp_filter.index_inc = slow_high_qual_coeffs.increment ;
 				break ;
 
@@ -347,6 +331,9 @@ sinc_mono_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 
 	src_ratio = psrc->last_ratio ;
 
+	if (is_bad_src_ratio (src_ratio))
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
 	/* Check the sample rate ratio wrt the buffer len. */
 	count = (filter->coeff_half_len + 2.0) / filter->index_inc ;
 	if (MIN (psrc->last_ratio, data->src_ratio) < 1.0)
@@ -381,17 +368,14 @@ sinc_mono_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 
 		/* This is the termination condition. */
 		if (filter->b_real_end >= 0)
-		{	if (filter->b_current + input_index + terminate >= filter->b_real_end)
+		{	if (filter->b_current + input_index + terminate > filter->b_real_end)
 				break ;
 			} ;
 
 		if (filter->out_count > 0 && fabs (psrc->last_ratio - data->src_ratio) > 1e-10)
 			src_ratio = psrc->last_ratio + filter->out_gen * (data->src_ratio - psrc->last_ratio) / filter->out_count ;
 
-		float_increment = filter->index_inc * 1.0 ;
-		if (src_ratio < 1.0)
-			float_increment = filter->index_inc * src_ratio ;
-
+		float_increment = filter->index_inc * (src_ratio < 1.0 ? src_ratio : 1.0) ;
 		increment = double_to_fp (float_increment) ;
 
 		start_filter_index = double_to_fp (input_index * float_increment) ;
@@ -496,6 +480,9 @@ sinc_stereo_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 
 	src_ratio = psrc->last_ratio ;
 
+	if (is_bad_src_ratio (src_ratio))
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
 	/* Check the sample rate ratio wrt the buffer len. */
 	count = (filter->coeff_half_len + 2.0) / filter->index_inc ;
 	if (MIN (psrc->last_ratio, data->src_ratio) < 1.0)
@@ -537,10 +524,7 @@ sinc_stereo_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 		if (filter->out_count > 0 && fabs (psrc->last_ratio - data->src_ratio) > 1e-10)
 			src_ratio = psrc->last_ratio + filter->out_gen * (data->src_ratio - psrc->last_ratio) / filter->out_count ;
 
-		float_increment = filter->index_inc * 1.0 ;
-		if (src_ratio < 1.0)
-			float_increment = filter->index_inc * src_ratio ;
-
+		float_increment = filter->index_inc * (src_ratio < 1.0 ? src_ratio : 1.0) ;
 		increment = double_to_fp (float_increment) ;
 
 		start_filter_index = double_to_fp (input_index * float_increment) ;
@@ -650,6 +634,9 @@ sinc_quad_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 
 	src_ratio = psrc->last_ratio ;
 
+	if (is_bad_src_ratio (src_ratio))
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
 	/* Check the sample rate ratio wrt the buffer len. */
 	count = (filter->coeff_half_len + 2.0) / filter->index_inc ;
 	if (MIN (psrc->last_ratio, data->src_ratio) < 1.0)
@@ -691,10 +678,7 @@ sinc_quad_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 		if (filter->out_count > 0 && fabs (psrc->last_ratio - data->src_ratio) > 1e-10)
 			src_ratio = psrc->last_ratio + filter->out_gen * (data->src_ratio - psrc->last_ratio) / filter->out_count ;
 
-		float_increment = filter->index_inc * 1.0 ;
-		if (src_ratio < 1.0)
-			float_increment = filter->index_inc * src_ratio ;
-
+		float_increment = filter->index_inc * (src_ratio < 1.0 ? src_ratio : 1.0) ;
 		increment = double_to_fp (float_increment) ;
 
 		start_filter_index = double_to_fp (input_index * float_increment) ;
@@ -810,6 +794,9 @@ sinc_hex_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 
 	src_ratio = psrc->last_ratio ;
 
+	if (is_bad_src_ratio (src_ratio))
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
 	/* Check the sample rate ratio wrt the buffer len. */
 	count = (filter->coeff_half_len + 2.0) / filter->index_inc ;
 	if (MIN (psrc->last_ratio, data->src_ratio) < 1.0)
@@ -851,10 +838,7 @@ sinc_hex_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 		if (filter->out_count > 0 && fabs (psrc->last_ratio - data->src_ratio) > 1e-10)
 			src_ratio = psrc->last_ratio + filter->out_gen * (data->src_ratio - psrc->last_ratio) / filter->out_count ;
 
-		float_increment = filter->index_inc * 1.0 ;
-		if (src_ratio < 1.0)
-			float_increment = filter->index_inc * src_ratio ;
-
+		float_increment = filter->index_inc * (src_ratio < 1.0 ? src_ratio : 1.0) ;
 		increment = double_to_fp (float_increment) ;
 
 		start_filter_index = double_to_fp (input_index * float_increment) ;
@@ -1057,6 +1041,9 @@ sinc_multichan_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 
 	src_ratio = psrc->last_ratio ;
 
+	if (is_bad_src_ratio (src_ratio))
+		return SRC_ERR_BAD_INTERNAL_STATE ;
+
 	/* Check the sample rate ratio wrt the buffer len. */
 	count = (filter->coeff_half_len + 2.0) / filter->index_inc ;
 	if (MIN (psrc->last_ratio, data->src_ratio) < 1.0)
@@ -1098,10 +1085,7 @@ sinc_multichan_vari_process (SRC_PRIVATE *psrc, SRC_DATA *data)
 		if (filter->out_count > 0 && fabs (psrc->last_ratio - data->src_ratio) > 1e-10)
 			src_ratio = psrc->last_ratio + filter->out_gen * (data->src_ratio - psrc->last_ratio) / filter->out_count ;
 
-		float_increment = filter->index_inc * 1.0 ;
-		if (src_ratio < 1.0)
-			float_increment = filter->index_inc * src_ratio ;
-
+		float_increment = filter->index_inc * (src_ratio < 1.0 ? src_ratio : 1.0) ;
 		increment = double_to_fp (float_increment) ;
 
 		start_filter_index = double_to_fp (input_index * float_increment) ;

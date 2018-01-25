@@ -36,7 +36,7 @@ Echo ESF documentation
     #include "ini.h"
     #include "inireader.h"
 
-typedef char int8_t;
+//typedef char int8_t;
 typedef unsigned char uint8_t;
 typedef short int16_t;
 typedef unsigned short uint16_t;
@@ -643,7 +643,7 @@ struct DMFFile
 		uint8_t m_numEffects;
 		PatternPage* m_patternPages;
 	};
-	
+
 	struct Sample
 	{
 		void Serialise(Stream& stream);
@@ -656,7 +656,7 @@ struct DMFFile
 		uint8_t m_bitsPerSample;
 		uint16_t* m_sampleData;
 	};
-	
+
 	void Serialise(Stream& stream);
 
 	std::string m_formatString;

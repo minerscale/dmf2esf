@@ -1,5 +1,5 @@
 #include "dmf2esf.h"
-#include "libsamplerate\src\samplerate.h"
+#include "samplerate.h"
 
 #include <set>
 
@@ -209,12 +209,12 @@ bool DMFConverter::Initialize(const char* Filename)
 				if(m_dmfFile.m_instruments[i].m_mode == DMFFile::INSTRUMENT_FM)
 				{
 					//sprintf_s(filename, FILENAME_MAX, "instr_FM_%02x_%s.eif", i + InstrumentOffset, m_dmfFile.m_instruments[i].m_name.c_str());
-					sprintf_s(filename, FILENAME_MAX, "instr_%02x.eif", i + InstrumentOffset);
+					snprintf(filename, FILENAME_MAX, "instr_%02x.eif", i + InstrumentOffset);
 				}
 				else
 				{
 					//sprintf_s(filename, FILENAME_MAX, "instr_PSG_%02x_%s.eif", i + InstrumentOffset, m_dmfFile.m_instruments[i].m_name.c_str());
-					sprintf_s(filename, FILENAME_MAX, "instr_%02x.eif", i + InstrumentOffset);
+					snprintf(filename, FILENAME_MAX, "instr_%02x.eif", i + InstrumentOffset);
 				}
 
 				OutputInstrument(i, filename);
@@ -223,7 +223,7 @@ bool DMFConverter::Initialize(const char* Filename)
 			for(int i = 0; i < m_dmfFile.m_numSamples; i++)
 			{
 				char filename[FILENAME_MAX] = { 0 };
-				sprintf_s(filename, FILENAME_MAX, "instr_%02x.ewf", i + TotalInstruments + InstrumentOffset);
+				snprintf(filename, FILENAME_MAX, "instr_%02x.ewf", i + TotalInstruments + InstrumentOffset);
 				OutputSample(i, filename, false);
 			}
 
@@ -627,7 +627,7 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 		uint8_t targetNote = Channels[chan].m_effectPortaNote.PortaNoteTargetNote;
 		uint8_t targetOctave = Channels[chan].m_effectPortaNote.PortaNoteTargetOctave;
 		uint8_t speed = Channels[chan].m_effectPortaNote.PortaNoteSpeed;
-		
+
 		//Lerp towards target at speed
 		if((targetNote | targetOctave << 8) > (currentNote | currentOctave << 8))
 		{
@@ -641,17 +641,17 @@ bool DMFConverter::ParseChannelRow(uint8_t chan, uint32_t CurrPattern, uint32_t 
 			if(currentNote < targetNote)
 				currentNote = targetNote;
 		}
-		
+
 		//If target reached, effect finished
 		if(currentNote == targetNote)
 		{
 			Channels[chan].m_effectPortaNote.PortaNote == EFFECT_OFF;
 		}
-		
+
 		//Note on
 		Channels[chan].Note = currentNote;
 		NoteOn(chan);
-		
+
 		//Update effect history data
 		Channels[chan].m_effectPortaNote.PortaNoteCurrentNote = currentNote;
 		Channels[chan].m_effectPortaNote.PortaNoteCurrentOctave = currentOctave;
@@ -1104,7 +1104,7 @@ void DMFConverter::OutputInstrument(int instrumentIdx, const char* filename)
 			uint8_t dt = 0;
 			if(dttable[opData.dt] < 0)
 			{
-				dt = abs(dttable[opData.dt]) & 0x3;
+				dt = (int)abs(dttable[opData.dt]) & 0x3;
 				dt |= 0x4;
 			}
 			else
@@ -1376,7 +1376,7 @@ void DMFFile::Serialise(Stream& stream)
 		Channel& channel = m_channels[channelIdx];
 
 		stream.Serialise(channel.m_numEffects);
-		
+
 		if(stream.GetDirection() == Stream::STREAM_IN)
 		{
 			channel.m_patternPages = new Channel::PatternPage[m_numPatternPages];
@@ -1490,7 +1490,7 @@ void DMFFile::Instrument::ParamDataPSG::Envelope::Serialise(Stream& stream)
 	{
 		stream.Serialise(envelopeData[i]);
 	}
-	
+
 	//Loop position
 	if(envelopeSize > 0)
 	{

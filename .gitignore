@@ -1,3 +1,8 @@
 bin/
 obj/
 stuff/
+dmf2esf\.layout\.save
+
+libsamplerate/src/\.deps/
+
+libsamplerate/src/\.libs/
